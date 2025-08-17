@@ -1,0 +1,48 @@
+{
+  "name": "hytopia-map-compression",
+  "version": "0.1.0",
+  "description": "High-performance map compression plugin for Hytopia",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "jest",
+    "lint": "eslint src/**/*.ts",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "hytopia",
+    "map",
+    "compression",
+    "plugin",
+    "game",
+    "voxel"
+  ],
+  "author": "",
+  "license": "MIT",
+  "peerDependencies": {
+    "hytopia": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "eslint": "^8.0.0",
+    "jest": "^29.0.0",
+    "typescript": "^5.0.0"
+  },
+  "files": [
+    "dist/**/*",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/YOUR_USERNAME/hytopia-map-compression.git"
+  },
+  "bugs": {
+    "url": "https://github.com/YOUR_USERNAME/hytopia-map-compression/issues"
+  },
+  "homepage": "https://github.com/YOUR_USERNAME/hytopia-map-compression#readme"
+}
