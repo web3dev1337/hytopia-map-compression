@@ -9,7 +9,8 @@
     "dev": "tsc --watch",
     "test": "jest",
     "lint": "eslint src/**/*.ts",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "precompute": "bun src/tools/PrecomputeChunks.ts"
   },
   "keywords": [
     "hytopia",
