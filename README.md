@@ -36,13 +36,16 @@ This single line automatically:
 
 ## How It Works
 
-The plugin uses **progressive optimization** with **hash-based caching**:
+The plugin uses **automatic optimization** with **hash-based caching**:
 
 ```
-First Run:    Original Map → Compress → Save Caches → Load (2s)
-Second Run:   Load Compressed Cache → 10x Faster (200ms)
-Third Run:    Load Pre-computed Chunks → 50x Faster (40ms)
-Map Changed?: Detect via Hash → Re-compress Automatically
+First Run:    Original Map → Create BOTH Caches → Load (2s)
+              ├─ map.<hash>.compressed.json (99.5% smaller)
+              └─ map.<hash>.chunks.bin (pre-computed for ultra-fast loading)
+
+Next Runs:    Load from Chunks → 50x Faster (40ms) ⚡
+
+Map Changed?: New Hash → Create New Caches → Auto-cleanup Old Files
 ```
 
 Cache files include the map's hash:

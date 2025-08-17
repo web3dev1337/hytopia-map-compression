@@ -28,15 +28,15 @@ await mapCompression.autoLoad('./assets/map.json', './config/my-config.yaml');
 
 // That's it! The plugin handles everything else automatically:
 // 
-// First run:
+// First run (creates everything at once):
 // 1. Loads original map.json
-// 2. Compresses it (99.5% size reduction)
-// 3. Saves as map.<hash>.compressed.json
-// 4. Pre-computes chunks and saves as map.<hash>.chunks.bin
+// 2. Creates map.<hash>.compressed.json (99.5% smaller)
+// 3. Creates map.<hash>.chunks.bin (pre-computed chunks)
+// 4. Both caches ready for next run!
 //
-// Subsequent runs:
+// All subsequent runs:
 // 1. Checks if map.json has changed (via hash)
-// 2. If unchanged, loads from ultra-fast chunks cache (50x faster)
-// 3. If changed, re-compresses and updates caches
+// 2. If unchanged, loads from ultra-fast chunks (50x faster!)
+// 3. If changed, creates new caches with new hash
 //
-// All old cache files are automatically cleaned up!
+// Old cache files are automatically cleaned up!

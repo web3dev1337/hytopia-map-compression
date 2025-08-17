@@ -375,23 +375,14 @@ export class MapCompression {
           this.metrics.loadTimeMs = loadTime;
           this.metrics.method = 'compressed-fast';
           
-          // Generate pre-computed chunks for next time (progressive optimization)
-          if (!fs.existsSync(chunksPath) && this.chunkLoader) {
-            this.log(`[AutoLoad] Generating pre-computed chunks for next run...`);
-            const decompressed = await this.decompress(compressedData);
-            const chunks = await this.chunkLoader.precomputeChunks(decompressed.blocks);
-            fs.writeFileSync(chunksPath, chunks);
-            this.log(`[AutoLoad] Created chunks cache: ${path.basename(chunksPath)}`);
-          }
-          
           // Clean up old cache files
           this.cleanupOldCaches(baseDir, baseName, mapHash);
           return;
         }
       }
       
-      // Step 3: First run or map changed - compress and cache
-      this.log(`[AutoLoad] No cache found for hash ${mapHash}, creating optimized versions`);
+      // Step 3: First run or map changed - create ALL caches at once!
+      this.log(`[AutoLoad] No cache found for hash ${mapHash}, creating ALL optimized versions`);
       
       // Parse map data
       const mapData = JSON.parse(mapContent.toString());
@@ -399,8 +390,10 @@ export class MapCompression {
       // Load it normally first
       await this.world.loadMap(mapData);
       
-      // Compress for next time
-      this.log(`[AutoLoad] Compressing map for faster future loads...`);
+      // Create BOTH compressed and chunks at the same time!
+      this.log(`[AutoLoad] Creating compressed cache and pre-computed chunks...`);
+      
+      // Compress the map
       const compressed = await this.compress(mapData);
       
       // Create full compressed map file with hash
@@ -422,20 +415,19 @@ export class MapCompression {
       
       // Save compressed version
       fs.writeFileSync(compressedMapPath, JSON.stringify(compressedFile, null, 2));
-      this.log(`[AutoLoad] Created compressed cache: ${path.basename(compressedMapPath)}`);
+      this.log(`[AutoLoad] ✅ Created compressed cache: ${path.basename(compressedMapPath)}`);
       this.log(`[AutoLoad] Compression: ${(compressed.metadata.compressionRatio * 100).toFixed(1)}% reduction`);
       
-      // Pre-compute chunks for ultra-fast loading next time
+      // ALWAYS create pre-computed chunks on first run (unless explicitly disabled)
       if (this.chunkLoader && this.options.autoLoad?.preferChunks !== false) {
-        this.log(`[AutoLoad] Pre-computing chunks for ultra-fast loading...`);
         const chunks = await this.chunkLoader.precomputeChunks(mapData.blocks);
         fs.writeFileSync(chunksPath, chunks);
-        this.log(`[AutoLoad] Created chunks cache: ${path.basename(chunksPath)}`);
+        this.log(`[AutoLoad] ✅ Created chunks cache: ${path.basename(chunksPath)}`);
       }
       
       const loadTime = Date.now() - startTime;
       this.log(`[AutoLoad] Initial load complete in ${loadTime}ms`);
-      this.log(`[AutoLoad] Next load will be 50x faster!`);
+      this.log(`[AutoLoad] Next load will be 50x faster with chunks!`);
       this.metrics.loadTimeMs = loadTime;
       this.metrics.method = 'initial-compression';
       
