@@ -287,11 +287,15 @@ export class MapCompression {
   /**
    * Automatically handle map loading with smart defaults
    * - Uses hash-based caching to detect changes
-   * - Progressive optimization: original → compressed → chunks
-   * - Handles everything automatically!
+   * - Handles all fallback scenarios gracefully
+   * - Includes version tracking for cache invalidation
    */
   async autoLoad(mapPath?: string, configPath?: string): Promise<void> {
     const startTime = Date.now();
+    
+    // Get plugin version for cache invalidation
+    const pluginVersion = '0.1.0'; // TODO: Import from package.json
+    const versionTag = `v${pluginVersion.replace(/\./g, '_')}`;
     
     // Load config if provided or use defaults
     if (configPath) {
@@ -314,70 +318,96 @@ export class MapCompression {
       const mapContent = fs.readFileSync(originalMapPath);
       const mapHash = crypto.createHash('md5').update(mapContent).digest('hex').slice(0, 8);
       
-      // Generate cache filenames with hash
+      // Generate cache filenames with hash AND version
       const baseDir = path.dirname(originalMapPath);
       const baseName = path.basename(originalMapPath, '.json');
-      const compressedMapPath = path.join(baseDir, `${baseName}.${mapHash}.compressed.json`);
-      const chunksPath = path.join(baseDir, `${baseName}.${mapHash}.chunks.bin`);
+      const compressedMapPath = path.join(baseDir, `${baseName}.${mapHash}.${versionTag}.compressed.json`);
+      const chunksPath = path.join(baseDir, `${baseName}.${mapHash}.${versionTag}.chunks.bin`);
       
       this.log(`[AutoLoad] Map hash: ${mapHash}`);
       
       // Step 1: Check for pre-computed chunks (ultra-fastest)
       if (fs.existsSync(chunksPath)) {
-        this.log(`[AutoLoad] Found pre-computed chunks for hash ${mapHash}, using ultra-fast loading`);
+        this.log(`[AutoLoad] Found pre-computed chunks, using ultra-fast loading`);
         
-        const chunksData = fs.readFileSync(chunksPath);
-        
-        // Load chunks directly (bypasses compression entirely)
-        if (this.chunkLoader) {
-          await this.chunkLoader.loadPrecomputedChunks(chunksData);
+        try {
+          const chunksData = fs.readFileSync(chunksPath);
           
-          // Load entities from compressed file if available
-          if (fs.existsSync(compressedMapPath)) {
-            const compressedData = JSON.parse(fs.readFileSync(compressedMapPath, 'utf-8'));
-            if (compressedData.entities) {
-              this.world.entities = compressedData.entities;
+          // Load chunks directly (bypasses compression entirely)
+          if (this.chunkLoader) {
+            await this.chunkLoader.loadPrecomputedChunks(chunksData);
+            
+            // Load entities from compressed file if available
+            if (fs.existsSync(compressedMapPath)) {
+              const compressedData = JSON.parse(fs.readFileSync(compressedMapPath, 'utf-8'));
+              if (compressedData.entities) {
+                this.world.entities = compressedData.entities;
+              }
+            } else {
+              // Fallback to original for entities
+              const mapData = JSON.parse(mapContent.toString());
+              if (mapData.entities) {
+                this.world.entities = mapData.entities;
+              }
             }
-          } else {
-            // Fallback to original for entities
-            const mapData = JSON.parse(mapContent.toString());
-            if (mapData.entities) {
-              this.world.entities = mapData.entities;
+            
+            const loadTime = Date.now() - startTime;
+            this.log(`[AutoLoad] ⚡ Ultra-fast chunk loading complete in ${loadTime}ms`);
+            this.metrics.loadTimeMs = loadTime;
+            this.metrics.method = 'precomputed-chunks';
+            
+            // Regenerate compressed file if missing (for consistency)
+            if (!fs.existsSync(compressedMapPath)) {
+              this.log(`[AutoLoad] Compressed file missing, regenerating...`);
+              this.regenerateCompressedFile(mapContent, compressedMapPath, mapHash, versionTag);
             }
+            
+            // Clean up old cache files
+            this.cleanupOldCaches(baseDir, baseName, mapHash, versionTag);
+            return;
           }
-          
-          const loadTime = Date.now() - startTime;
-          this.log(`[AutoLoad] ⚡ Ultra-fast chunk loading complete in ${loadTime}ms`);
-          this.metrics.loadTimeMs = loadTime;
-          this.metrics.method = 'precomputed-chunks';
-          
-          // Clean up old cache files with different hashes
-          this.cleanupOldCaches(baseDir, baseName, mapHash);
-          return;
+        } catch (error) {
+          this.log(`[AutoLoad] Failed to load chunks, falling back...`);
+          // Fall through to next option
         }
       }
       
       // Step 2: Check for compressed map (fast)
       if (fs.existsSync(compressedMapPath)) {
-        this.log(`[AutoLoad] Found compressed map for hash ${mapHash}, loading with optimizations`);
+        this.log(`[AutoLoad] Found compressed map, loading with optimizations`);
         
-        const compressedData = JSON.parse(fs.readFileSync(compressedMapPath, 'utf-8'));
-        
-        // Verify hash matches (belt and suspenders)
-        if (compressedData.sourceHash && compressedData.sourceHash !== mapHash) {
-          this.log(`[AutoLoad] Hash mismatch! Map has changed, will recompress`);
-        } else {
-          // Use fast loader with all optimizations
-          await this.fastLoader.load(compressedData);
+        try {
+          const compressedData = JSON.parse(fs.readFileSync(compressedMapPath, 'utf-8'));
           
-          const loadTime = Date.now() - startTime;
-          this.log(`[AutoLoad] ✨ Fast loading complete in ${loadTime}ms`);
-          this.metrics.loadTimeMs = loadTime;
-          this.metrics.method = 'compressed-fast';
-          
-          // Clean up old cache files
-          this.cleanupOldCaches(baseDir, baseName, mapHash);
-          return;
+          // Verify hash matches (belt and suspenders)
+          if (compressedData.sourceHash && compressedData.sourceHash !== mapHash) {
+            this.log(`[AutoLoad] Hash mismatch! Map has changed, will recompress`);
+            // Fall through to recompress
+          } else {
+            // Use fast loader with all optimizations
+            await this.fastLoader.load(compressedData);
+            
+            const loadTime = Date.now() - startTime;
+            this.log(`[AutoLoad] ✨ Fast loading complete in ${loadTime}ms`);
+            this.metrics.loadTimeMs = loadTime;
+            this.metrics.method = 'compressed-fast';
+            
+            // Regenerate chunks if missing (for next run)
+            if (!fs.existsSync(chunksPath) && this.chunkLoader) {
+              this.log(`[AutoLoad] Chunks missing, regenerating for next run...`);
+              const decompressed = await this.decompress(compressedData);
+              const chunks = await this.chunkLoader.precomputeChunks(decompressed.blocks);
+              fs.writeFileSync(chunksPath, chunks);
+              this.log(`[AutoLoad] ✅ Regenerated chunks cache`);
+            }
+            
+            // Clean up old cache files
+            this.cleanupOldCaches(baseDir, baseName, mapHash, versionTag);
+            return;
+          }
+        } catch (error) {
+          this.log(`[AutoLoad] Failed to load compressed map, will recreate...`);
+          // Fall through to recreate everything
         }
       }
       
@@ -432,7 +462,7 @@ export class MapCompression {
       this.metrics.method = 'initial-compression';
       
       // Clean up old cache files
-      this.cleanupOldCaches(baseDir, baseName, mapHash);
+      this.cleanupOldCaches(baseDir, baseName, mapHash, versionTag);
       
     } catch (error: any) {
       this.log(`[AutoLoad] Error: ${error.message}`);
@@ -441,15 +471,16 @@ export class MapCompression {
   }
   
   /**
-   * Clean up old cache files with different hashes
+   * Clean up old cache files with different hashes or versions
    */
-  private cleanupOldCaches(dir: string, baseName: string, currentHash: string): void {
+  private cleanupOldCaches(dir: string, baseName: string, currentHash: string, currentVersion: string): void {
     try {
       const files = fs.readdirSync(dir);
-      const pattern = new RegExp(`^${baseName}\\.[a-f0-9]{8}\\.(compressed\\.json|chunks\\.bin)$`);
+      // Match files with pattern: basename.hash.version.type
+      const pattern = new RegExp(`^${baseName}\\.[a-f0-9]{8}\\.v[0-9_]+\\.(compressed\\.json|chunks\\.bin)$`);
       
       files.forEach(file => {
-        if (pattern.test(file) && !file.includes(currentHash)) {
+        if (pattern.test(file) && (!file.includes(currentHash) || !file.includes(currentVersion))) {
           const filePath = path.join(dir, file);
           fs.unlinkSync(filePath);
           this.log(`[AutoLoad] Cleaned up old cache: ${file}`);
@@ -457,6 +488,38 @@ export class MapCompression {
       });
     } catch (error) {
       // Ignore cleanup errors
+    }
+  }
+  
+  /**
+   * Regenerate compressed file from original map data
+   */
+  private async regenerateCompressedFile(mapContent: Buffer, compressedMapPath: string, mapHash: string, versionTag: string): Promise<void> {
+    try {
+      const mapData = JSON.parse(mapContent.toString());
+      const compressed = await this.compress(mapData);
+      
+      const compressedFile = {
+        version: compressed.version,
+        algorithm: 'brotli',
+        data: compressed.data,
+        blockTypes: compressed.blockTypes,
+        bounds: compressed.bounds,
+        entities: mapData.entities || {},
+        mapVersion: mapData.version || '1.0.0',
+        metadata: compressed.metadata,
+        options: {
+          useDelta: true,
+          useVarint: true
+        },
+        sourceHash: mapHash,
+        pluginVersion: versionTag
+      };
+      
+      fs.writeFileSync(compressedMapPath, JSON.stringify(compressedFile, null, 2));
+      this.log(`[AutoLoad] ✅ Regenerated compressed file`);
+    } catch (error) {
+      this.log(`[AutoLoad] Failed to regenerate compressed file`);
     }
   }
   
