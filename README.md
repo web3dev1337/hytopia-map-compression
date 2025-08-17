@@ -1,15 +1,15 @@
 # Hytopia Map Compression
 
-High-performance map compression and loading plugin for Hytopia. Achieves **99.5% compression** and **50x faster loading** for large maps.
+Zero-config, high-performance map compression plugin for Hytopia. **One line of code** for 99.5% compression and 50x faster loading!
 
 ## Features
 
-- 🗜️ **99.5% Compression** - Compress 131MB maps to just 638KB
-- ⚡ **50x Faster Loading** - Load maps in <1 second instead of 36+ seconds  
-- 🔧 **Multiple Optimization Strategies** - MonkeyPatch, DirectChunk, Hybrid loading
-- 💾 **Perfect Data Preservation** - Lossless compression maintains all blocks, entities, and metadata
-- 🚀 **Easy Integration** - Drop-in replacement for `world.loadMap()`
-- 📊 **Performance Metrics** - Built-in performance tracking and reporting
+- 🎯 **Zero Configuration** - Just one line: `await MapCompression.quickLoad(world)`
+- 🗜️ **99.5% Compression** - Compress 131MB maps to just 638KB automatically
+- ⚡ **50x Faster Loading** - Progressive optimization with automatic caching
+- 🔄 **Smart Change Detection** - Hash-based cache invalidation
+- 🧹 **Self-Cleaning** - Automatically removes old cache files
+- 📦 **Convention Over Configuration** - Sensible defaults that just work
 
 ## Installation
 
@@ -17,31 +17,73 @@ High-performance map compression and loading plugin for Hytopia. Achieves **99.5
 npm install hytopia-map-compression
 ```
 
-## Quick Start
+## Quick Start (Zero Config! 🎉)
 
-```typescript
+```javascript
 import { MapCompression } from 'hytopia-map-compression';
 
-// Initialize the plugin
+// That's it! One line handles EVERYTHING:
+await MapCompression.quickLoad(world);
+```
+
+This single line automatically:
+- ✅ Looks for `./assets/map.json` (convention)
+- ✅ Compresses it on first run (99.5% reduction)
+- ✅ Creates pre-computed chunks for ultra-fast loading
+- ✅ Uses the fastest method available on subsequent runs
+- ✅ Detects map changes via hash and re-compresses when needed
+- ✅ Cleans up old cache files automatically
+
+## How It Works
+
+The plugin uses **progressive optimization** with **hash-based caching**:
+
+```
+First Run:    Original Map → Compress → Save Caches → Load (2s)
+Second Run:   Load Compressed Cache → 10x Faster (200ms)
+Third Run:    Load Pre-computed Chunks → 50x Faster (40ms)
+Map Changed?: Detect via Hash → Re-compress Automatically
+```
+
+Cache files include the map's hash:
+- `map.a1b2c3d4.compressed.json` - Compressed version
+- `map.a1b2c3d4.chunks.bin` - Pre-computed chunks
+
+When your map changes, new cache files are created and old ones are cleaned up!
+
+## More Examples
+
+### Custom Map Path
+```javascript
+// Specify a custom map location
+await MapCompression.quickLoad(world, './maps/my-custom-map.json');
+```
+
+### With Debugging
+```javascript
+// Create instance for metrics and debugging
+const mc = new MapCompression(world, { debug: true });
+await mc.autoLoad();
+
+// Check performance metrics
+console.log(mc.getMetrics());
+// Output: { loadTimeMs: 42, method: 'precomputed-chunks', ... }
+```
+
+### Manual Control (Advanced)
+```javascript
+// Full control over compression pipeline
 const mc = new MapCompression(world, {
   compression: { algorithm: 'brotli', level: 9 },
-  optimization: { monkeyPatch: true, useChunks: true }
+  optimization: { useChunks: true }
 });
 
-// Compress a map (99.5% size reduction)
+// Manually compress
 const compressed = await mc.compress(mapData);
-console.log(`Compressed from ${mapData.size} to ${compressed.size}`);
+console.log(`Compressed to ${compressed.metadata.compressionRatio * 100}%`);
 
-// Decompress a map
-const decompressed = await mc.decompress(compressed);
-
-// Load any map (auto-detects compression)
-await mc.loadMap(mapDataOrPath); // 50x faster!
-
-// Get performance metrics
-const metrics = mc.getMetrics();
-console.log(`Compression ratio: ${metrics.compressionRatio * 100}%`);
-console.log(`Load time: ${metrics.loadTimeMs}ms`);
+// Manually load
+await mc.loadMap(compressed);
 ```
 
 ## Compression Pipeline

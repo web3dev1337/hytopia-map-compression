@@ -8,7 +8,7 @@ import { MapCompressionOptions } from '../types';
  * Supports YAML config files with sensible defaults
  */
 export class ConfigLoader {
-  private static defaultConfigPath = path.join(__dirname, '../../config/default.yaml');
+  private static defaultConfigPath = path.join(__dirname, '../../assets/config/default.yaml');
   
   /**
    * Load configuration from YAML file

@@ -442,7 +442,7 @@ export class MapCompression {
       // Clean up old cache files
       this.cleanupOldCaches(baseDir, baseName, mapHash);
       
-    } catch (error) {
+    } catch (error: any) {
       this.log(`[AutoLoad] Error: ${error.message}`);
       throw error;
     }
