@@ -7,6 +7,7 @@ import { FastLoader } from '../optimization/FastLoader';
 import { MonkeyPatchLoader } from '../optimization/MonkeyPatchLoader';
 import { DirectChunkLoader } from '../optimization/DirectChunkLoader';
 import { ConfigLoader } from '../utils/ConfigLoader';
+import { DetailedBenchmark } from '../utils/DetailedBenchmark';
 import {
   MapCompressionOptions,
   CompressionResult,
@@ -90,6 +91,13 @@ export class MapCompression {
     
     if (this.options.optimization?.useChunks) {
       this.chunkLoader = new DirectChunkLoader(world, this.options);
+      if (this.options.debug) {
+        this.log('ChunkLoader initialized');
+      }
+    } else {
+      if (this.options.debug) {
+        this.log('ChunkLoader NOT initialized - useChunks:', this.options.optimization?.useChunks);
+      }
     }
     
     if (this.options.debug) {
@@ -250,8 +258,12 @@ export class MapCompression {
    * Log message using configured logger
    */
   private log(...args: any[]): void {
-    if (this.options.debug && this.options.logger) {
-      this.options.logger(`[MapCompression] ${args.join(' ')}`);
+    if (this.options.debug) {
+      if (this.options.logger) {
+        this.options.logger(`[MapCompression] ${args.join(' ')}`);
+      } else {
+        console.log(`[MapCompression] ${args.join(' ')}`);
+      }
     }
   }
   
@@ -297,13 +309,19 @@ export class MapCompression {
   async autoLoad(mapPath?: string, configPath?: string): Promise<void> {
     const startTime = Date.now();
     
+    // Create detailed benchmark if debug is enabled
+    const benchmark = new DetailedBenchmark(this.options.debug || false);
+    benchmark.start();
+    
     // Get plugin version for cache invalidation
     const pluginVersion = '0.1.0'; // TODO: Import from package.json
     const versionTag = `v${pluginVersion.replace(/\./g, '_')}`;
     
     // Load config - will automatically check for assets/config/map-compression.yaml
+    benchmark.startStep('Config Loading');
     const config = ConfigLoader.loadConfig(configPath);
     Object.assign(this.options, config);
+    benchmark.finishStep();
     
     // Use paths from config or defaults
     const originalMapPath = mapPath || this.options.paths?.mapFile || './assets/map.json';
@@ -317,8 +335,14 @@ export class MapCompression {
       }
       
       // Calculate hash of original map file
+      benchmark.startStep('File Read', { path: originalMapPath });
       const mapContent = fs.readFileSync(originalMapPath);
+      const mapSize = mapContent.length;
+      benchmark.finishStep({ sizeBytes: mapSize });
+      
+      benchmark.startStep('Hash Calculation');
       const mapHash = crypto.createHash('md5').update(mapContent).digest('hex').slice(0, 8);
+      benchmark.finishStep({ hash: mapHash })
       
       // Generate cache filenames with hash AND version
       const baseDir = path.dirname(originalMapPath);
@@ -333,41 +357,49 @@ export class MapCompression {
         this.log(`[AutoLoad] Found pre-computed chunks, using ultra-fast loading`);
         
         try {
+          benchmark.startStep('Chunks Cache Read', { path: chunksPath });
           const chunksData = fs.readFileSync(chunksPath);
+          benchmark.finishStep({ sizeBytes: chunksData.length })
           
           // Load chunks directly (bypasses compression entirely)
-          if (this.chunkLoader) {
-            await this.chunkLoader.loadPrecomputedChunks(chunksData);
-            
-            // Load entities from compressed file if available
-            if (fs.existsSync(compressedMapPath)) {
-              const compressedData = JSON.parse(fs.readFileSync(compressedMapPath, 'utf-8'));
-              if (compressedData.entities) {
-                this.world.entities = compressedData.entities;
-              }
-            } else {
-              // Fallback to original for entities
-              const mapData = JSON.parse(mapContent.toString());
-              if (mapData.entities) {
-                this.world.entities = mapData.entities;
-              }
-            }
-            
-            const loadTime = Date.now() - startTime;
-            this.log(`[AutoLoad] ⚡ Ultra-fast chunk loading complete in ${loadTime}ms`);
-            this.metrics.loadTimeMs = loadTime;
-            this.metrics.method = 'precomputed-chunks';
-            
-            // Regenerate compressed file if missing (for consistency)
-            if (!fs.existsSync(compressedMapPath)) {
-              this.log(`[AutoLoad] Compressed file missing, regenerating...`);
-              this.regenerateCompressedFile(mapContent, compressedMapPath, mapHash, versionTag);
-            }
-            
-            // Clean up old cache files
-            this.cleanupOldCaches(baseDir, baseName, mapHash, versionTag);
-            return;
+          if (!this.chunkLoader) {
+            this.log('[AutoLoad] WARNING: ChunkLoader not initialized, cannot load chunks!');
+            throw new Error('ChunkLoader not initialized - falling back to compressed');
           }
+          
+          benchmark.startStep('Chunk Loading');
+          await this.chunkLoader.loadPrecomputedChunks(chunksData);
+          benchmark.finishStep()
+          
+          // Load entities from compressed file if available
+          if (fs.existsSync(compressedMapPath)) {
+            const compressedData = JSON.parse(fs.readFileSync(compressedMapPath, 'utf-8'));
+            if (compressedData.entities) {
+              this.world.entities = compressedData.entities;
+            }
+          } else {
+            // Fallback to original for entities
+            const mapData = JSON.parse(mapContent.toString());
+            if (mapData.entities) {
+              this.world.entities = mapData.entities;
+            }
+          }
+          
+          const results = benchmark.finish();
+          this.log(`[AutoLoad] ⚡ Ultra-fast chunk loading complete in ${results.totalTime}ms`);
+          this.metrics.loadTimeMs = results.totalTime;
+          this.metrics.method = 'precomputed-chunks';
+          this.metrics.benchmark = results;
+          
+          // Regenerate compressed file if missing (for consistency)
+          if (!fs.existsSync(compressedMapPath)) {
+            this.log(`[AutoLoad] Compressed file missing, regenerating...`);
+            this.regenerateCompressedFile(mapContent, compressedMapPath, mapHash, versionTag);
+          }
+          
+          // Clean up old cache files
+          this.cleanupOldCaches(baseDir, baseName, mapHash, versionTag);
+          return;
         } catch (error) {
           this.log(`[AutoLoad] Failed to load chunks, falling back...`);
           // Fall through to next option
@@ -379,7 +411,10 @@ export class MapCompression {
         this.log(`[AutoLoad] Found compressed map, loading with optimizations`);
         
         try {
-          const compressedData = JSON.parse(fs.readFileSync(compressedMapPath, 'utf-8'));
+          benchmark.startStep('Compressed Cache Read', { path: compressedMapPath });
+          const compressedContent = fs.readFileSync(compressedMapPath, 'utf-8');
+          const compressedData = JSON.parse(compressedContent);
+          benchmark.finishStep({ sizeBytes: compressedContent.length })
           
           // Verify hash matches (belt and suspenders)
           if (compressedData.sourceHash && compressedData.sourceHash !== mapHash) {
@@ -387,12 +422,15 @@ export class MapCompression {
             // Fall through to recompress
           } else {
             // Use fast loader with all optimizations
+            benchmark.startStep('Fast Loading (Decompression + Placement)');
             await this.fastLoader.load(compressedData);
+            benchmark.finishStep()
             
-            const loadTime = Date.now() - startTime;
-            this.log(`[AutoLoad] ✨ Fast loading complete in ${loadTime}ms`);
-            this.metrics.loadTimeMs = loadTime;
+            const results = benchmark.finish();
+            this.log(`[AutoLoad] ✨ Fast loading complete in ${results.totalTime}ms`);
+            this.metrics.loadTimeMs = results.totalTime;
             this.metrics.method = 'compressed-fast';
+            this.metrics.benchmark = results;
             
             // Regenerate chunks if missing (for next run)
             if (!fs.existsSync(chunksPath) && this.chunkLoader) {
@@ -446,7 +484,9 @@ export class MapCompression {
       };
       
       // Save compressed version
+      benchmark.startStep('Cache Write (Compressed)');
       fs.writeFileSync(compressedMapPath, JSON.stringify(compressedFile, null, 2));
+      benchmark.finishStep({ path: compressedMapPath });
       this.log(`[AutoLoad] ✅ Created compressed cache: ${path.basename(compressedMapPath)}`);
       this.log(`[AutoLoad] Compression: ${(compressed.metadata.compressionRatio * 100).toFixed(1)}% reduction`);
       
@@ -457,16 +497,22 @@ export class MapCompression {
         this.options.autoLoad?.preferChunks !== false;
         
       if (shouldCreateChunks && this.chunkLoader) {
+        benchmark.startStep('Chunks Generation');
         const chunks = await this.chunkLoader.precomputeChunks(mapData.blocks);
+        benchmark.finishStep({ chunksSize: chunks.length });
+        
+        benchmark.startStep('Cache Write (Chunks)');
         fs.writeFileSync(chunksPath, chunks);
+        benchmark.finishStep({ path: chunksPath });
         this.log(`[AutoLoad] ✅ Created chunks cache: ${path.basename(chunksPath)}`);
       }
       
-      const loadTime = Date.now() - startTime;
-      this.log(`[AutoLoad] Initial load complete in ${loadTime}ms`);
+      const results = benchmark.finish();
+      this.log(`[AutoLoad] Initial load complete in ${results.totalTime}ms`);
       this.log(`[AutoLoad] Next load will be 50x faster with chunks!`);
-      this.metrics.loadTimeMs = loadTime;
+      this.metrics.loadTimeMs = results.totalTime;
       this.metrics.method = 'initial-compression';
+      this.metrics.benchmark = results;
       
       // Clean up old cache files
       this.cleanupOldCaches(baseDir, baseName, mapHash, versionTag);
@@ -534,9 +580,16 @@ export class MapCompression {
    * Simple static factory for zero-config usage
    * Example: await MapCompression.quickLoad(world);
    */
-  static async quickLoad(world: any, mapPath?: string): Promise<MapCompression> {
-    const mc = new MapCompression(world);
+  static async quickLoad(world: any, mapPath?: string, enableBenchmark: boolean = false): Promise<MapCompression> {
+    const mc = new MapCompression(world, enableBenchmark ? { debug: true } : {});
     await mc.autoLoad(mapPath);
     return mc;
+  }
+  
+  /**
+   * Quick load with detailed benchmarking enabled
+   */
+  static async quickLoadWithBenchmark(world: any, mapPath?: string): Promise<MapCompression> {
+    return MapCompression.quickLoad(world, mapPath, true);
   }
 }

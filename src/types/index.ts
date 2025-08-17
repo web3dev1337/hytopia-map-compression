@@ -96,6 +96,7 @@ export interface PerformanceMetrics {
   blocksLoaded?: number;
   method?: string;
   memoryUsedMB?: number;
+  benchmark?: any; // Detailed benchmark results
 }
 
 export interface MapData {
