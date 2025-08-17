@@ -369,28 +369,49 @@ export class MapCompression {
           }
           
           benchmark.startStep('Chunk Loading');
-          await this.chunkLoader.loadPrecomputedChunks(chunksData);
-          benchmark.finishStep()
           
-          // Load entities from compressed file if available
+          // Get block types for registration
+          let blockTypes: any[] = [];
+          
+          // Try to get from compressed file first
           if (fs.existsSync(compressedMapPath)) {
             const compressedData = JSON.parse(fs.readFileSync(compressedMapPath, 'utf-8'));
+            blockTypes = compressedData.blockTypes || [];
+            
+            // Also load entities while we have the data
             if (compressedData.entities) {
               this.world.entities = compressedData.entities;
             }
-          } else {
-            // Fallback to original for entities
+          }
+          
+          // Fallback to original map if no compressed or no blockTypes
+          if (blockTypes.length === 0) {
             const mapData = JSON.parse(mapContent.toString());
-            if (mapData.entities) {
+            blockTypes = mapData.blockTypes || [];
+            
+            // Also load entities if not already loaded
+            if (!this.world.entities && mapData.entities) {
               this.world.entities = mapData.entities;
             }
           }
           
-          const results = benchmark.finish();
-          this.log(`[AutoLoad] ⚡ Ultra-fast chunk loading complete in ${results.totalTime}ms`);
-          this.metrics.loadTimeMs = results.totalTime;
-          this.metrics.method = 'precomputed-chunks';
-          this.metrics.benchmark = results;
+          // Load chunks with block types
+          await this.chunkLoader.loadPrecomputedChunks(chunksData, blockTypes);
+          benchmark.finishStep()
+          
+          console.log('>>> ABOUT TO FINISH BENCHMARK AND RETURN <<<');
+          
+          // Finish benchmark and record metrics
+          try {
+            const results = benchmark.finish();
+            this.log(`[AutoLoad] ⚡ Ultra-fast chunk loading complete in ${results.totalTime}ms`);
+            this.metrics.loadTimeMs = results.totalTime;
+            this.metrics.method = 'precomputed-chunks';
+            this.metrics.benchmark = results;
+          } catch (benchErr) {
+            console.error('>>> ERROR FINISHING BENCHMARK:', benchErr);
+            throw benchErr;
+          }
           
           // Regenerate compressed file if missing (for consistency)
           if (!fs.existsSync(compressedMapPath)) {
@@ -401,14 +422,17 @@ export class MapCompression {
           // Clean up old cache files
           this.cleanupOldCaches(baseDir, baseName, mapHash, versionTag);
           this.log('[AutoLoad] ✅ Chunks loading complete, returning early (no decompression needed!)');
+          console.log('>>> CHUNKS SECTION RETURNING NOW - NO DECOMPRESSION SHOULD HAPPEN <<<');
           return;
         } catch (error) {
+          console.error('>>> CHUNKS SECTION CAUGHT ERROR, FALLING BACK:', error);
           this.log(`[AutoLoad] Failed to load chunks, falling back...`, error);
           // Fall through to next option
         }
       }
       
       // Step 2: Check for compressed map (fast)
+      console.log('>>> ENTERING COMPRESSED SECTION - THIS SHOULD NOT HAPPEN IF CHUNKS LOADED <<<');
       this.log('[AutoLoad] Entering compressed map section (chunks not available or failed)');
       if (fs.existsSync(compressedMapPath)) {
         this.log(`[AutoLoad] Found compressed map, loading with optimizations`);

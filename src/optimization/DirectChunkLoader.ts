@@ -185,9 +185,36 @@ export class DirectChunkLoader {
   }
   
   /**
+   * Register block types before loading chunks
+   */
+  private registerBlockTypes(blockTypes?: any[]): void {
+    if (!blockTypes || !this.world.blockTypeRegistry) {
+      console.log('[DirectChunkLoader] No block types to register or no registry available');
+      return;
+    }
+    
+    console.log(`[DirectChunkLoader] Registering ${blockTypes.length} block types...`);
+    for (const blockType of blockTypes) {
+      try {
+        this.world.blockTypeRegistry.registerGenericBlockType({
+          id: blockType.id,
+          isLiquid: blockType.isLiquid || false,
+          name: blockType.name || `block_${blockType.id}`,
+          textureUri: blockType.textureUri || 'blocks/stone.png'
+        });
+      } catch (e) {
+        // Already registered or error, skip
+      }
+    }
+  }
+  
+  /**
    * Load pre-computed chunks
    */
-  async loadPrecomputedChunks(chunkData: Buffer): Promise<void> {
+  async loadPrecomputedChunks(chunkData: Buffer, blockTypes?: any[]): Promise<void> {
+    // Register block types first!
+    this.registerBlockTypes(blockTypes);
+    
     let offset = 0;
     const startTime = Date.now();
     let chunksLoaded = 0;
