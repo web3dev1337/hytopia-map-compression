@@ -140,7 +140,12 @@ export class DirectChunkLoader {
       
       // Set blocks
       for (const block of batch) {
-        this.world.setBlock(block.x, block.y, block.z, block.id);
+        try {
+          this.world.setBlock(block.x, block.y, block.z, block.id);
+        } catch (e) {
+          console.error(`[DirectChunkLoader] Failed to setBlock at (${block.x}, ${block.y}, ${block.z}) with id ${block.id}:`, e);
+          throw e;
+        }
       }
     }
   }
@@ -188,6 +193,13 @@ export class DirectChunkLoader {
    * Register block types before loading chunks
    */
   private registerBlockTypes(blockTypes?: any[]): void {
+    // Check if world has setBlock method
+    if (!this.world.setBlock) {
+      console.error('[DirectChunkLoader] ERROR: world.setBlock method does not exist!');
+      console.log('[DirectChunkLoader] Available world methods:', Object.getOwnPropertyNames(this.world));
+      throw new Error('world.setBlock method not available');
+    }
+    
     if (!blockTypes || !this.world.blockTypeRegistry) {
       console.log('[DirectChunkLoader] No block types to register or no registry available');
       return;

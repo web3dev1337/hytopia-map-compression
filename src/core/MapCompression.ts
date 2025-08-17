@@ -6,6 +6,7 @@ import { MapDecompressor } from './MapDecompressor';
 import { FastLoader } from '../optimization/FastLoader';
 import { MonkeyPatchLoader } from '../optimization/MonkeyPatchLoader';
 import { DirectChunkLoader } from '../optimization/DirectChunkLoader';
+import { DirectChunkLoaderV3 } from '../optimization/DirectChunkLoaderV3';
 import { ConfigLoader } from '../utils/ConfigLoader';
 import { DetailedBenchmark } from '../utils/DetailedBenchmark';
 import {
@@ -29,6 +30,7 @@ export class MapCompression {
   private fastLoader: FastLoader;
   private monkeyPatcher?: MonkeyPatchLoader;
   private chunkLoader?: DirectChunkLoader;
+  private chunkLoaderV3?: DirectChunkLoaderV3;
   private metrics: PerformanceMetrics = {};
   
   constructor(world: any, options: MapCompressionOptions = {}) {
@@ -91,8 +93,9 @@ export class MapCompression {
     
     if (this.options.optimization?.useChunks) {
       this.chunkLoader = new DirectChunkLoader(world, this.options);
+      this.chunkLoaderV3 = new DirectChunkLoaderV3(world, this.options);
       if (this.options.debug) {
-        this.log('ChunkLoader initialized');
+        this.log('ChunkLoader V3 initialized (HyFire8 style)');
       }
     } else {
       if (this.options.debug) {
@@ -363,40 +366,30 @@ export class MapCompression {
           benchmark.finishStep({ sizeBytes: chunksData.length })
           
           // Load chunks directly (bypasses compression entirely)
-          if (!this.chunkLoader) {
-            this.log('[AutoLoad] WARNING: ChunkLoader not initialized, cannot load chunks!');
-            throw new Error('ChunkLoader not initialized - falling back to compressed');
+          if (!this.chunkLoaderV3) {
+            this.log('[AutoLoad] WARNING: ChunkLoaderV3 not initialized, cannot load chunks!');
+            throw new Error('ChunkLoaderV3 not initialized - falling back to compressed');
           }
           
           benchmark.startStep('Chunk Loading');
           
-          // Get block types for registration
-          let blockTypes: any[] = [];
+          // Use V3 loader (HyFire8 style - direct chunkLattice manipulation)
+          this.chunkLoaderV3.loadDirectly(chunksData);
           
-          // Try to get from compressed file first
+          // Load entities from compressed file if available
           if (fs.existsSync(compressedMapPath)) {
             const compressedData = JSON.parse(fs.readFileSync(compressedMapPath, 'utf-8'));
-            blockTypes = compressedData.blockTypes || [];
-            
-            // Also load entities while we have the data
             if (compressedData.entities) {
               this.world.entities = compressedData.entities;
             }
-          }
-          
-          // Fallback to original map if no compressed or no blockTypes
-          if (blockTypes.length === 0) {
+          } else {
+            // Fallback to original for entities
             const mapData = JSON.parse(mapContent.toString());
-            blockTypes = mapData.blockTypes || [];
-            
-            // Also load entities if not already loaded
-            if (!this.world.entities && mapData.entities) {
+            if (mapData.entities) {
               this.world.entities = mapData.entities;
             }
           }
           
-          // Load chunks with block types
-          await this.chunkLoader.loadPrecomputedChunks(chunksData, blockTypes);
           benchmark.finishStep()
           
           console.log('>>> ABOUT TO FINISH BENCHMARK AND RETURN <<<');
