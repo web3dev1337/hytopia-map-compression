@@ -297,11 +297,9 @@ export class MapCompression {
     const pluginVersion = '0.1.0'; // TODO: Import from package.json
     const versionTag = `v${pluginVersion.replace(/\./g, '_')}`;
     
-    // Load config if provided or use defaults
-    if (configPath) {
-      const config = ConfigLoader.loadConfig(configPath);
-      Object.assign(this.options, config);
-    }
+    // Load config - will automatically check for assets/config/map-compression.yaml
+    const config = ConfigLoader.loadConfig(configPath);
+    Object.assign(this.options, config);
     
     // Use paths from config or defaults
     const originalMapPath = mapPath || this.options.paths?.mapFile || './assets/map.json';

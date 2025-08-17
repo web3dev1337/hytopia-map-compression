@@ -1,0 +1,21 @@
+# Hytopia Map Compression - Custom Configuration
+# Copy this file to assets/config/map-compression.yaml to customize settings
+# The plugin will automatically load it if present
+
+# Only include the settings you want to override - defaults are sensible
+
+# Example: Enable debug logging
+logging:
+  enabled: true  # Show detailed logs during compression/loading
+
+# Example: Use different map location
+paths:
+  mapFile: ./maps/my-custom-map.json
+
+# Example: Disable pre-computed chunks (if you're low on disk space)
+autoLoad:
+  preferChunks: false
+
+# Example: Use lower compression for faster processing
+compression:
+  level: 6  # Default is 9 (maximum compression)

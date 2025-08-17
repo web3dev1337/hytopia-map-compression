@@ -19,8 +19,20 @@ export class ConfigLoader {
     // Load default config
     const defaultConfig = this.loadYamlFile(this.defaultConfigPath);
     
-    // If no custom config specified, return defaults
+    // If no custom config specified, check for convention-based config
     if (!configPath) {
+      // Convention: look for assets/config/map-compression.yaml
+      const conventionPath = path.join(process.cwd(), 'assets/config/map-compression.yaml');
+      if (fs.existsSync(conventionPath)) {
+        try {
+          const customConfig = this.loadYamlFile(conventionPath);
+          const merged = this.deepMerge(defaultConfig, customConfig);
+          console.log('[MapCompression] Using config from assets/config/map-compression.yaml');
+          return this.parseConfig(merged);
+        } catch (error) {
+          console.warn('[MapCompression] Found config but failed to load, using defaults');
+        }
+      }
       return this.parseConfig(defaultConfig);
     }
     

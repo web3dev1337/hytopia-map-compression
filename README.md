@@ -107,21 +107,28 @@ The plugin uses a sophisticated 3-stage compression pipeline:
 
 ## API Reference
 
-### Advanced Configuration (Optional)
+### Configuration (Optional)
 
-Most users won't need this - the defaults are optimized for best performance. But if you need fine control:
+The plugin works perfectly with zero configuration, but you can customize it:
 
-```typescript
+**Option 1: Convention-based config** (Recommended)
+Create `assets/config/map-compression.yaml` and it will be loaded automatically:
+
+```yaml
+# Example: Enable debug logging
+logging:
+  enabled: true
+```
+
+**Option 2: Code-based config**
+```javascript
 new MapCompression(world, {
-  debug: true,              // Enable debug logging
-  metrics: true,            // Track performance metrics
-  
-  // You can also use a YAML config file:
-  configFile: './assets/config/my-config.yaml'
+  debug: true,
+  metrics: true
 });
 ```
 
-See `assets/config/default.yaml` for all available options.
+See `assets/config/map-compression.yaml.example` for all options.
 
 ### Methods
 
