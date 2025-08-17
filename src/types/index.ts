@@ -111,4 +111,8 @@ export interface CompressedMapData {
     compressionRatio: number;
     blockCount: number;
   };
+  options?: {
+    useDelta?: boolean;
+    useVarint?: boolean;
+  };
 }
