@@ -24,7 +24,8 @@ export class MapCompressor {
   }
   
   /**
-   * Compress map data using the full pipeline
+   * Compress map data using HyFire8's EXACT WORKING algorithm
+   * This handles 6.5M blocks perfectly - DON'T CHANGE THE CORE LOGIC!
    */
   async compress(mapData: MapData): Promise<CompressionResult> {
     const startTime = Date.now();
@@ -34,84 +35,51 @@ export class MapCompressor {
       console.log(`[MapCompressor] Original blocks: ${Object.keys(mapData.blocks).length}`);
     }
     
-    // Step 1: Delta encoding
-    let encoded: Buffer;
-    let bounds: any;
+    // Calculate bounds - EXACT from HyFire8
+    const bounds = this.calculateBounds(mapData.blocks);
+    const blockCount = Object.keys(mapData.blocks).length;
     
-    if (this.options.compression?.useDelta) {
-      const deltaStart = Date.now();
-      const { deltas, blockIds, bounds: calculatedBounds } = DeltaEncoder.encodePositions(mapData.blocks);
-      bounds = calculatedBounds;
+    // Convert to sorted array - EXACT from HyFire8
+    const blocks = Object.entries(mapData.blocks)
+      .map(([coord, id]) => {
+        const [x, y, z] = coord.split(',').map(Number);
+        return { 
+          x: x - bounds.minX, 
+          y: y - bounds.minY, 
+          z: z - bounds.minZ, 
+          id 
+        };
+      })
+      .sort((a, b) => a.y - b.y || a.x - b.x || a.z - b.z);
+    
+    // Encode using varint with delta compression - EXACT from HyFire8
+    const buffer = Buffer.allocUnsafe(blocks.length * 15);
+    let offset = 0;
+    
+    // Write header
+    buffer.writeUInt32LE(blocks.length, offset);
+    offset += 4;
+    
+    // Delta + Varint encoding - EXACT from HyFire8
+    let lastX = 0, lastY = 0, lastZ = 0;
+    for (const block of blocks) {
+      offset = this.writeVarint(block.x - lastX, buffer, offset);
+      offset = this.writeVarint(block.y - lastY, buffer, offset);
+      offset = this.writeVarint(block.z - lastZ, buffer, offset);
+      offset = this.writeVarint(block.id, buffer, offset);
       
-      // Step 2: Varint encoding
-      if (this.options.compression?.useVarint) {
-        const varintStart = Date.now();
-        
-        // Create buffer for varint encoding (similar to working version)
-        const buffer = Buffer.allocUnsafe(blockIds.length * 15);
-        let offset = 0;
-        
-        // Write header (block count)
-        buffer.writeUInt32LE(blockIds.length, offset);
-        offset += 4;
-        
-        // Write varint-encoded deltas and block IDs inline (exactly like working version)
-        for (let i = 0; i < blockIds.length; i++) {
-          // Write delta X with zigzag
-          offset = VarintEncoder.writeSignedVarint(buffer, offset, deltas[i * 3]);
-          // Write delta Y with zigzag
-          offset = VarintEncoder.writeSignedVarint(buffer, offset, deltas[i * 3 + 1]);
-          // Write delta Z with zigzag
-          offset = VarintEncoder.writeSignedVarint(buffer, offset, deltas[i * 3 + 2]);
-          // Write block ID with zigzag (working version does this too)
-          offset = VarintEncoder.writeSignedVarint(buffer, offset, blockIds[i]);
-        }
-        
-        encoded = buffer.slice(0, offset);
-        
-        if (this.options.debug) {
-          console.log(`[MapCompressor] Varint encoding: ${Date.now() - varintStart}ms`);
-        }
-      } else {
-        // Just use delta encoding without varint
-        const combined = [...deltas, ...blockIds];
-        encoded = Buffer.from(new Int32Array(combined).buffer);
-      }
-      
-      if (this.options.debug) {
-        console.log(`[MapCompressor] Delta encoding: ${Date.now() - deltaStart}ms`);
-      }
-    } else {
-      // No delta encoding - serialize blocks directly
-      const blockArray: number[] = [];
-      bounds = { minX: 0, minY: 0, minZ: 0, maxX: 0, maxY: 0, maxZ: 0 };
-      
-      for (const [key, id] of Object.entries(mapData.blocks)) {
-        const [x, y, z] = key.split(',').map(Number);
-        blockArray.push(x, y, z, id);
-        
-        // Update bounds
-        bounds.minX = Math.min(bounds.minX, x);
-        bounds.minY = Math.min(bounds.minY, y);
-        bounds.minZ = Math.min(bounds.minZ, z);
-        bounds.maxX = Math.max(bounds.maxX, x);
-        bounds.maxY = Math.max(bounds.maxY, y);
-        bounds.maxZ = Math.max(bounds.maxZ, z);
-      }
-      
-      encoded = Buffer.from(new Int32Array(blockArray).buffer);
+      lastX = block.x;
+      lastY = block.y;
+      lastZ = block.z;
     }
     
-    // Step 3: Brotli compression
-    const brotliStart = Date.now();
-    const compressedData = await BrotliWrapper.compressToBase64(encoded, {
-      algorithm: this.options.compression?.algorithm,
-      level: this.options.compression?.level
+    const encodedData = buffer.slice(0, offset);
+    
+    // Apply Brotli compression - using the wrapper but same params as HyFire8
+    const compressedData = await BrotliWrapper.compressToBase64(encodedData, {
+      algorithm: this.options.compression?.algorithm || 'brotli',
+      level: this.options.compression?.level || 9
     });
-    
-    if (this.options.debug) {
-      console.log(`[MapCompressor] Brotli compression: ${Date.now() - brotliStart}ms`);
-    }
     
     // Calculate metrics
     const originalSize = JSON.stringify(mapData).length;
@@ -141,6 +109,40 @@ export class MapCompressor {
       bounds,
       version: '1.0.0'
     };
+  }
+  
+  /**
+   * HyFire8's EXACT helper functions
+   */
+  private calculateBounds(blocks: { [key: string]: number }) {
+    let minX = Infinity, minY = Infinity, minZ = Infinity;
+    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    
+    for (const coord of Object.keys(blocks)) {
+      const [x, y, z] = coord.split(',').map(Number);
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      minZ = Math.min(minZ, z);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+      maxZ = Math.max(maxZ, z);
+    }
+    
+    return { minX, minY, minZ, maxX, maxY, maxZ };
+  }
+  
+  private writeVarint(value: number, buffer: Buffer, offset: number): number {
+    // Make value positive for varint encoding - EXACT from HyFire8
+    const zigzag = (value << 1) ^ (value >> 31);
+    let current = zigzag;
+    
+    while (current > 0x7f) {
+      buffer[offset++] = (current & 0x7f) | 0x80;
+      current >>>= 7;
+    }
+    buffer[offset++] = current;
+    
+    return offset;
   }
   
   /**

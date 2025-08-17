@@ -67,14 +67,20 @@ export class DeltaEncoder {
     let z = 0;
     let deltaIndex = 0;
     
+    // Default bounds if not provided
+    const shift = bounds || { minX: 0, minY: 0, minZ: 0, maxX: 0, maxY: 0, maxZ: 0 };
+    
     for (let i = 0; i < blockIds.length; i++) {
       // Apply deltas
       x += deltas[deltaIndex++];
       y += deltas[deltaIndex++];
       z += deltas[deltaIndex++];
       
-      // Store block
-      blocks[`${x},${y},${z}`] = blockIds[i];
+      // Store block - SHIFT BACK TO ORIGINAL COORDINATES!
+      const realX = x + shift.minX;
+      const realY = y + shift.minY;
+      const realZ = z + shift.minZ;
+      blocks[`${realX},${realY},${realZ}`] = blockIds[i];
     }
     
     return blocks;
