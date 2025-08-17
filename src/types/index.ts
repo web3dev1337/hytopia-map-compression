@@ -94,7 +94,7 @@ export interface CompressedMapData {
   version: string;
   algorithm: string;
   data: string; // Base64 encoded
-  blockTypes: { [key: string]: number };
+  blockTypes: any; // Can be array or object
   bounds: {
     minX: number;
     minY: number;

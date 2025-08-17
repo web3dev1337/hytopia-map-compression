@@ -156,7 +156,7 @@ export class DirectChunkLoader {
       const [chunkX, chunkZ] = chunkKey.split(',').map(Number);
       
       // Create compact chunk representation
-      const chunkBuffer = Buffer.allocUnsafe(4 + 4 + blockList.length * 13); // header + blocks
+      const chunkBuffer = Buffer.allocUnsafe(4 + 4 + blockList.length * 14); // header + blocks (4+4+4+2 per block)
       let offset = 0;
       
       // Write chunk coordinates
@@ -173,8 +173,8 @@ export class DirectChunkLoader {
         offset += 4;
         chunkBuffer.writeInt32LE(block.z, offset);
         offset += 4;
-        chunkBuffer.writeUInt8(block.id, offset);
-        offset += 1;
+        chunkBuffer.writeUInt16LE(block.id, offset); // Use 16-bit for block IDs
+        offset += 2;
       }
       
       chunkData.push(chunkBuffer.slice(0, offset));
@@ -204,14 +204,14 @@ export class DirectChunkLoader {
       
       while (offset < chunkData.length) {
         // Check if this is a new chunk header (heuristic)
-        if (offset + 13 <= chunkData.length) {
+        if (offset + 14 <= chunkData.length) {
           const x = chunkData.readInt32LE(offset);
           const y = chunkData.readInt32LE(offset + 4);
           const z = chunkData.readInt32LE(offset + 8);
-          const id = chunkData.readUInt8(offset + 12);
+          const id = chunkData.readUInt16LE(offset + 12);
           
           blocks.push({ x, y, z, id });
-          offset += 13;
+          offset += 14;
           
           // Check if next might be a chunk header
           if (offset + 8 <= chunkData.length) {
