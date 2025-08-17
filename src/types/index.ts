@@ -35,9 +35,22 @@ export interface MapCompressionOptions {
     reportMetrics?: boolean;
   };
   
+  paths?: {
+    mapFile?: string;
+    compressedMap?: string;
+    precomputedChunks?: string;
+  };
+  autoLoad?: {
+    enabled?: boolean;
+    createCache?: boolean;
+    preferChunks?: boolean;
+    fallbackToOriginal?: boolean;
+    useHashInFilename?: boolean;  // Add hash to compressed filename
+  };
   debug?: boolean;
   metrics?: boolean;
   logger?: (msg: string) => void;
+  configFile?: string;  // Path to custom config file
 }
 
 export interface CompressionResult {
@@ -115,4 +128,5 @@ export interface CompressedMapData {
     useDelta?: boolean;
     useVarint?: boolean;
   };
+  sourceHash?: string;  // Hash of original map file
 }

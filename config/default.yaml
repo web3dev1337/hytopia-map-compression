@@ -1,0 +1,55 @@
+# Hytopia Map Compression - Default Configuration
+# This file contains all default settings for the plugin
+# You can override these by creating your own config file
+
+# Core features toggle
+features:
+  compression: true        # Enable map compression
+  decompression: true      # Enable map decompression  
+  fastLoading: true        # Enable optimized loading
+  monkeyPatching: false    # Enable SDK monkey patching (use with caution)
+
+# Compression settings
+compression:
+  algorithm: brotli        # Compression algorithm: brotli, gzip, or none
+  level: 9                 # Compression level 1-9 (9 = best compression)
+  useDelta: true          # Use delta encoding for positions
+  useVarint: true         # Use variable-length integer encoding
+
+# Loading optimizations
+optimization:
+  enabled: true           # Enable all optimizations
+  monkeyPatch: false      # Monkey patch SDK methods
+  useChunks: true         # Use chunk-based loading
+  batchSize: 10000        # Blocks per batch
+  preParseCoordinates: true  # Pre-parse coordinate strings
+
+# Loading method selection
+loading:
+  method: hybrid          # Method: monkeypatch, chunks, hybrid, or default
+  batchSize: 10000        # Blocks per load batch
+
+# Performance settings
+performance:
+  maxMemory: 524288000    # Max memory usage (500MB)
+  cacheCompressed: true   # Keep compressed data in memory
+  reportMetrics: true     # Report performance metrics
+
+# File paths (relative to project root)
+paths:
+  mapFile: ./assets/map.json              # Original map file
+  compressedMap: ./assets/map.compressed.json  # Compressed map cache
+  precomputedChunks: ./assets/map.chunks.bin   # Pre-computed chunks cache
+
+# Logging
+logging:
+  enabled: false          # Enable debug logging
+  metrics: true           # Log performance metrics
+  level: info            # Log level: debug, info, warn, error
+
+# Auto-load behavior
+autoLoad:
+  enabled: true           # Enable automatic loading
+  createCache: true       # Create compressed/chunk caches automatically
+  preferChunks: true      # Prefer pre-computed chunks when available
+  fallbackToOriginal: true  # Fall back to original map if needed

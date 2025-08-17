@@ -44,5 +44,8 @@
   "bugs": {
     "url": "https://github.com/YOUR_USERNAME/hytopia-map-compression/issues"
   },
-  "homepage": "https://github.com/YOUR_USERNAME/hytopia-map-compression#readme"
+  "homepage": "https://github.com/YOUR_USERNAME/hytopia-map-compression#readme",
+  "dependencies": {
+    "yaml": "^2.3.4"
+  }
 }
