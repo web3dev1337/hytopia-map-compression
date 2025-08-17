@@ -353,8 +353,9 @@ export class MapCompression {
       this.log(`[AutoLoad] Map hash: ${mapHash}`);
       
       // Step 1: Check for pre-computed chunks (ultra-fastest) - skip in simple mode
+      this.log(`[AutoLoad] Checking for chunks at: ${chunksPath}`);
       if (!this.options.simple && !this.options.autoLoad?.compressionOnly && fs.existsSync(chunksPath)) {
-        this.log(`[AutoLoad] Found pre-computed chunks, using ultra-fast loading`);
+        this.log(`[AutoLoad] ✓ Found pre-computed chunks, entering chunks section`);
         
         try {
           benchmark.startStep('Chunks Cache Read', { path: chunksPath });
@@ -399,14 +400,16 @@ export class MapCompression {
           
           // Clean up old cache files
           this.cleanupOldCaches(baseDir, baseName, mapHash, versionTag);
+          this.log('[AutoLoad] ✅ Chunks loading complete, returning early (no decompression needed!)');
           return;
         } catch (error) {
-          this.log(`[AutoLoad] Failed to load chunks, falling back...`);
+          this.log(`[AutoLoad] Failed to load chunks, falling back...`, error);
           // Fall through to next option
         }
       }
       
       // Step 2: Check for compressed map (fast)
+      this.log('[AutoLoad] Entering compressed map section (chunks not available or failed)');
       if (fs.existsSync(compressedMapPath)) {
         this.log(`[AutoLoad] Found compressed map, loading with optimizations`);
         
