@@ -55,16 +55,16 @@ export class MapCompressor {
         buffer.writeUInt32LE(blockIds.length, offset);
         offset += 4;
         
-        // Write varint-encoded deltas and block IDs inline
+        // Write varint-encoded deltas and block IDs inline (exactly like working version)
         for (let i = 0; i < blockIds.length; i++) {
-          // Write delta X
-          offset = VarintEncoder.writeVarint(buffer, offset, VarintEncoder.encodeZigzag(deltas[i * 3]));
-          // Write delta Y
-          offset = VarintEncoder.writeVarint(buffer, offset, VarintEncoder.encodeZigzag(deltas[i * 3 + 1]));
-          // Write delta Z
-          offset = VarintEncoder.writeVarint(buffer, offset, VarintEncoder.encodeZigzag(deltas[i * 3 + 2]));
-          // Write block ID
-          offset = VarintEncoder.writeVarint(buffer, offset, VarintEncoder.encodeZigzag(blockIds[i]));
+          // Write delta X with zigzag
+          offset = VarintEncoder.writeSignedVarint(buffer, offset, deltas[i * 3]);
+          // Write delta Y with zigzag
+          offset = VarintEncoder.writeSignedVarint(buffer, offset, deltas[i * 3 + 1]);
+          // Write delta Z with zigzag
+          offset = VarintEncoder.writeSignedVarint(buffer, offset, deltas[i * 3 + 2]);
+          // Write block ID with zigzag (working version does this too)
+          offset = VarintEncoder.writeSignedVarint(buffer, offset, blockIds[i]);
         }
         
         encoded = buffer.slice(0, offset);

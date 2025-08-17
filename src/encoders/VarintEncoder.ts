@@ -18,19 +18,33 @@ export class VarintEncoder {
   }
   
   /**
-   * Write a varint to a buffer
+   * Write a varint to a buffer (returns new offset like working version)
    */
   static writeVarint(buffer: Buffer, offset: number, value: number): number {
-    let bytesWritten = 0;
-    
     while ((value & ~0x7F) !== 0) {
-      buffer[offset + bytesWritten] = (value & 0x7F) | 0x80;
+      buffer[offset++] = (value & 0x7F) | 0x80;
       value >>>= 7;
-      bytesWritten++;
     }
     
-    buffer[offset + bytesWritten] = value & 0x7F;
-    return bytesWritten + 1;
+    buffer[offset++] = value & 0x7F;
+    return offset; // Return the NEW offset, not bytes written
+  }
+  
+  /**
+   * Write a signed varint with zigzag encoding (matches working version exactly)
+   */
+  static writeSignedVarint(buffer: Buffer, offset: number, value: number): number {
+    // Zigzag encode first
+    value = (value << 1) ^ (value >> 31);
+    
+    // Then write as varint
+    while (value > 0x7F) {
+      buffer[offset++] = (value & 0x7F) | 0x80;
+      value >>>= 7;
+    }
+    buffer[offset++] = value & 0x7F;
+    
+    return offset;
   }
   
   /**
