@@ -107,41 +107,21 @@ The plugin uses a sophisticated 3-stage compression pipeline:
 
 ## API Reference
 
-### Constructor Options
+### Advanced Configuration (Optional)
+
+Most users won't need this - the defaults are optimized for best performance. But if you need fine control:
 
 ```typescript
 new MapCompression(world, {
-  // Feature toggles
-  features: {
-    compression: true,      // Enable compression
-    decompression: true,    // Enable decompression
-    fastLoading: true,      // Enable fast loading
-    monkeyPatching: false   // Patch SDK methods
-  },
+  debug: true,              // Enable debug logging
+  metrics: true,            // Track performance metrics
   
-  // Compression settings
-  compression: {
-    algorithm: 'brotli',    // 'brotli' | 'gzip' | 'none'
-    level: 9,              // 1-9 compression level
-    useDelta: true,        // Delta encoding
-    useVarint: true        // Varint encoding
-  },
-  
-  // Loading optimizations
-  optimization: {
-    enabled: true,
-    monkeyPatch: true,     // Patch world.loadMap()
-    useChunks: true,       // Direct chunk injection
-    batchSize: 10000       // Blocks per batch
-  },
-  
-  // Performance options
-  performance: {
-    maxMemory: 500MB,      // Memory limit
-    reportMetrics: true    // Log performance
-  }
+  // You can also use a YAML config file:
+  configFile: './assets/config/my-config.yaml'
 });
 ```
+
+See `assets/config/default.yaml` for all available options.
 
 ### Methods
 
@@ -188,88 +168,44 @@ console.log(`Compression: ${metrics.compressionRatio * 100}%`);
 console.log(`Load time: ${metrics.loadTimeMs}ms`);
 ```
 
-## Loading Methods
+## Under the Hood
 
-The plugin provides multiple loading strategies:
+The plugin uses intelligent loading strategies that are **automatically selected**:
 
-### 1. MonkeyPatch (Default for small maps)
-Patches `world.loadMap()` to handle compressed maps transparently.
+- **Pre-computed Chunks**: Direct binary loading, bypasses decompression entirely (50x faster)
+- **Compressed Loading**: Fast decompression with optimizations (10x faster)
+- **Automatic Fallback**: Regenerates missing cache files seamlessly
 
-### 2. DirectChunk (For large maps)
-Bypasses individual `setBlock()` calls by loading chunks directly.
+All of this happens automatically with `quickLoad()` - you don't need to configure anything!
 
-### 3. Hybrid (Best performance)
-Combines MonkeyPatch with pre-computed chunks for optimal speed.
+## Examples Beyond QuickLoad
 
-The plugin automatically selects the best method based on map size, or you can specify:
+While `quickLoad()` handles everything automatically, you can also use the plugin manually:
 
-```typescript
-const mc = new MapCompression(world, {
-  loading: { method: 'chunks' } // 'default' | 'monkeypatch' | 'chunks' | 'hybrid'
-});
-```
+### Manual Compression
 
-## Examples
-
-### Basic Compression
-
-```typescript
-import { MapCompression } from 'hytopia-map-compression';
-import mapData from './map.json';
-
+```javascript
 const mc = new MapCompression(world);
 
-// Compress the map
+// Compress a map
 const compressed = await mc.compress(mapData);
-console.log(`Compressed to ${compressed.metadata.compressedSize} bytes`);
+console.log(`Compressed to ${compressed.metadata.compressionRatio * 100}% of original`);
 
-// Save to file
-fs.writeFileSync('map.compressed.json', JSON.stringify(compressed));
+// Save compressed data
+fs.writeFileSync('my-map.compressed.json', JSON.stringify(compressed));
 ```
 
-### Fast Loading Only
+### Manual Loading
 
-```typescript
-const mc = new MapCompression(world, {
-  features: {
-    compression: false,     // Disable compression
-    fastLoading: true,
-    monkeyPatching: true
-  }
-});
+```javascript
+const mc = new MapCompression(world);
 
-// Will use fast loading automatically
-await mc.loadMap('./large-map.json');
-```
+// Load any map (auto-detects if compressed)
+await mc.loadMap(mapData);
 
-### Full Pipeline
-
-```typescript
-const mc = new MapCompression(world, {
-  compression: {
-    algorithm: 'brotli',
-    level: 9,
-    useDelta: true,
-    useVarint: true
-  },
-  optimization: {
-    monkeyPatch: true,
-    useChunks: true
-  },
-  metrics: true
-});
-
-// Compress
-const compressed = await mc.compress(mapData);
-await saveToFile('map.cmap', compressed);
-
-// Later: Load compressed map
-const data = await loadFromFile('map.cmap');
-await mc.loadMap(data); // Super fast!
-
-// Check performance
-const report = mc.getMetrics();
-console.log('Performance:', report);
+// Get performance metrics
+const metrics = mc.getMetrics();
+console.log(`Loaded in ${metrics.loadTimeMs}ms`);
 ```
 
 ## How It Works
