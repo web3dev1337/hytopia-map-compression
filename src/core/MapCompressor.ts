@@ -47,25 +47,27 @@ export class MapCompressor {
       if (this.options.compression?.useVarint) {
         const varintStart = Date.now();
         
-        // Encode deltas with varint
-        const deltaBuffer = VarintEncoder.encodeArray(deltas);
+        // Create buffer for varint encoding (similar to working version)
+        const buffer = Buffer.allocUnsafe(blockIds.length * 15);
+        let offset = 0;
         
-        // Encode block IDs (with optional RLE)
-        const { encoded: rleBlockIds, isRLE } = DeltaEncoder.encodeBlockIds(blockIds);
-        const blockIdBuffer = VarintEncoder.encodeArray(rleBlockIds);
+        // Write header (block count)
+        buffer.writeUInt32LE(blockIds.length, offset);
+        offset += 4;
         
-        // Combine buffers
-        const totalLength = 4 + 1 + deltaBuffer.length + blockIdBuffer.length;
-        encoded = Buffer.allocUnsafe(totalLength);
+        // Write varint-encoded deltas and block IDs inline
+        for (let i = 0; i < blockIds.length; i++) {
+          // Write delta X
+          offset = VarintEncoder.writeVarint(buffer, offset, VarintEncoder.encodeZigzag(deltas[i * 3]));
+          // Write delta Y
+          offset = VarintEncoder.writeVarint(buffer, offset, VarintEncoder.encodeZigzag(deltas[i * 3 + 1]));
+          // Write delta Z
+          offset = VarintEncoder.writeVarint(buffer, offset, VarintEncoder.encodeZigzag(deltas[i * 3 + 2]));
+          // Write block ID
+          offset = VarintEncoder.writeVarint(buffer, offset, VarintEncoder.encodeZigzag(blockIds[i]));
+        }
         
-        // Write block count
-        encoded.writeUInt32LE(blockIds.length, 0);
-        // Write RLE flag
-        encoded[4] = isRLE ? 1 : 0;
-        // Write deltas
-        deltaBuffer.copy(encoded, 5);
-        // Write block IDs
-        blockIdBuffer.copy(encoded, 5 + deltaBuffer.length);
+        encoded = buffer.slice(0, offset);
         
         if (this.options.debug) {
           console.log(`[MapCompressor] Varint encoding: ${Date.now() - varintStart}ms`);

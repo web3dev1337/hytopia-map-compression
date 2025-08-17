@@ -18,6 +18,14 @@ export class DeltaEncoder {
     // Calculate bounds
     const bounds = this.calculateBounds(sortedBlocks);
     
+    // Shift coordinates by bounds to make them all positive (like working version)
+    const shiftedBlocks = sortedBlocks.map(block => ({
+      x: block.x - bounds.minX,
+      y: block.y - bounds.minY,
+      z: block.z - bounds.minZ,
+      id: block.id
+    }));
+    
     // Encode as deltas
     const deltas: number[] = [];
     const blockIds: number[] = [];
@@ -26,7 +34,7 @@ export class DeltaEncoder {
     let lastY = 0;
     let lastZ = 0;
     
-    for (const block of sortedBlocks) {
+    for (const block of shiftedBlocks) {
       // Store deltas
       deltas.push(block.x - lastX);
       deltas.push(block.y - lastY);

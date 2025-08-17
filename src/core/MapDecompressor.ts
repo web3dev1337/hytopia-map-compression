@@ -89,34 +89,40 @@ export class MapDecompressor {
     const blockCount = buffer.readUInt32LE(offset);
     offset += 4;
     
-    // Read RLE flag
-    const isRLE = buffer[offset] === 1;
-    offset += 1;
+    const blocks: { [key: string]: number } = {};
+    let lastX = 0, lastY = 0, lastZ = 0;
     
-    // Read delta buffer size (we need to know where it ends)
-    // Since we don't store it, we'll read both arrays from the remaining buffer
-    const remaining = buffer.slice(offset);
-    
-    // Decode deltas (3 values per block)
-    const deltaCount = blockCount * 3;
-    let deltaOffset = 0;
-    const deltas: number[] = new Array(deltaCount);
-    
-    for (let i = 0; i < deltaCount; i++) {
-      const result = VarintEncoder.readVarintFast(remaining, deltaOffset);
-      deltas[i] = VarintEncoder.decodeZigzag(result.value);
-      deltaOffset = result.offset;
+    // Read varint-encoded deltas and block IDs
+    for (let i = 0; i < blockCount; i++) {
+      // Read delta X
+      const resultX = VarintEncoder.readVarintFast(buffer, offset);
+      lastX += VarintEncoder.decodeZigzag(resultX.value);
+      offset = resultX.offset;
+      
+      // Read delta Y
+      const resultY = VarintEncoder.readVarintFast(buffer, offset);
+      lastY += VarintEncoder.decodeZigzag(resultY.value);
+      offset = resultY.offset;
+      
+      // Read delta Z
+      const resultZ = VarintEncoder.readVarintFast(buffer, offset);
+      lastZ += VarintEncoder.decodeZigzag(resultZ.value);
+      offset = resultZ.offset;
+      
+      // Read block ID
+      const resultId = VarintEncoder.readVarintFast(buffer, offset);
+      const blockId = VarintEncoder.decodeZigzag(resultId.value);
+      offset = resultId.offset;
+      
+      // Add bounds back to get original coordinates
+      const x = lastX + (compressedData.bounds?.minX || 0);
+      const y = lastY + (compressedData.bounds?.minY || 0);
+      const z = lastZ + (compressedData.bounds?.minZ || 0);
+      
+      blocks[`${x},${y},${z}`] = blockId;
     }
     
-    // Decode block IDs from remaining buffer
-    const blockIdBuffer = remaining.slice(deltaOffset);
-    const encodedBlockIds = VarintEncoder.decodeArray(blockIdBuffer);
-    
-    // Decode RLE if needed
-    const blockIds = DeltaEncoder.decodeBlockIds(encodedBlockIds, isRLE);
-    
-    // Reconstruct blocks using delta decoding
-    return DeltaEncoder.decodePositions(deltas, blockIds, compressedData.bounds);
+    return blocks;
   }
   
   /**
