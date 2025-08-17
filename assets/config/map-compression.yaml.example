@@ -19,3 +19,7 @@ autoLoad:
 # Example: Use lower compression for faster processing
 compression:
   level: 6  # Default is 9 (maximum compression)
+
+# Example: Simple mode - only compression/decompression, no fancy optimizations
+autoLoad:
+  compressionOnly: true  # Disables chunks, monkey patching, etc.

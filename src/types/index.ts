@@ -46,11 +46,13 @@ export interface MapCompressionOptions {
     preferChunks?: boolean;
     fallbackToOriginal?: boolean;
     useHashInFilename?: boolean;  // Add hash to compressed filename
+    compressionOnly?: boolean;  // Only use compression, no loading optimizations
   };
   debug?: boolean;
   metrics?: boolean;
   logger?: (msg: string) => void;
   configFile?: string;  // Path to custom config file
+  simple?: boolean;  // Simple mode: only compression/decompression, no fancy optimizations
 }
 
 export interface CompressionResult {

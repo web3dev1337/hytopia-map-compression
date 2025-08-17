@@ -53,3 +53,4 @@ autoLoad:
   createCache: true       # Create compressed/chunk caches automatically
   preferChunks: true      # Prefer pre-computed chunks when available
   fallbackToOriginal: true  # Fall back to original map if needed
+  compressionOnly: false  # Set to true for simple compression/decompression only

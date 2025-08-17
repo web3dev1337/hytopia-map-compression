@@ -33,12 +33,15 @@ export class MapCompression {
   constructor(world: any, options: MapCompressionOptions = {}) {
     this.world = world;
     
+    // Check for simple mode (compression only, no optimizations)
+    const simpleMode = options.simple || options.autoLoad?.compressionOnly;
+    
     // Set default options
     this.options = {
       features: {
         compression: true,
         decompression: true,
-        fastLoading: true,
+        fastLoading: !simpleMode,  // Disable in simple mode
         monkeyPatching: false,
         ...options.features
       },
@@ -50,15 +53,15 @@ export class MapCompression {
         ...options.compression
       },
       optimization: {
-        enabled: true,
+        enabled: !simpleMode,  // Disable in simple mode
         monkeyPatch: false,
-        useChunks: true,
+        useChunks: !simpleMode,  // Disable in simple mode
         batchSize: 10000,
         preParseCoordinates: true,
         ...options.optimization
       },
       loading: {
-        method: 'hybrid',
+        method: simpleMode ? 'default' : 'hybrid',
         batchSize: 10000,
         ...options.loading
       },
@@ -70,7 +73,8 @@ export class MapCompression {
       },
       debug: options.debug || false,
       metrics: options.metrics || true,
-      logger: options.logger || console.log
+      logger: options.logger || console.log,
+      simple: simpleMode
     };
     
     // Initialize components
@@ -324,8 +328,8 @@ export class MapCompression {
       
       this.log(`[AutoLoad] Map hash: ${mapHash}`);
       
-      // Step 1: Check for pre-computed chunks (ultra-fastest)
-      if (fs.existsSync(chunksPath)) {
+      // Step 1: Check for pre-computed chunks (ultra-fastest) - skip in simple mode
+      if (!this.options.simple && !this.options.autoLoad?.compressionOnly && fs.existsSync(chunksPath)) {
         this.log(`[AutoLoad] Found pre-computed chunks, using ultra-fast loading`);
         
         try {
@@ -446,8 +450,13 @@ export class MapCompression {
       this.log(`[AutoLoad] ✅ Created compressed cache: ${path.basename(compressedMapPath)}`);
       this.log(`[AutoLoad] Compression: ${(compressed.metadata.compressionRatio * 100).toFixed(1)}% reduction`);
       
-      // ALWAYS create pre-computed chunks on first run (unless explicitly disabled)
-      if (this.chunkLoader && this.options.autoLoad?.preferChunks !== false) {
+      // Create pre-computed chunks (unless in simple mode or explicitly disabled)
+      const shouldCreateChunks = this.chunkLoader && 
+        !this.options.simple && 
+        !this.options.autoLoad?.compressionOnly &&
+        this.options.autoLoad?.preferChunks !== false;
+        
+      if (shouldCreateChunks && this.chunkLoader) {
         const chunks = await this.chunkLoader.precomputeChunks(mapData.blocks);
         fs.writeFileSync(chunksPath, chunks);
         this.log(`[AutoLoad] ✅ Created chunks cache: ${path.basename(chunksPath)}`);

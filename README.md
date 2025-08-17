@@ -215,6 +215,24 @@ const metrics = mc.getMetrics();
 console.log(`Loaded in ${metrics.loadTimeMs}ms`);
 ```
 
+### Simple Mode (Compression Only)
+
+If you only want compression/decompression without any loading optimizations:
+
+```javascript
+// Simple mode - no chunks, no optimizations, just compression
+const mc = new MapCompression(world, { simple: true });
+
+// Or via config:
+const mc = new MapCompression(world, {
+  autoLoad: { compressionOnly: true }
+});
+
+// Compress and decompress as normal
+const compressed = await mc.compress(mapData);
+const decompressed = await mc.decompress(compressed);
+```
+
 ## How It Works
 
 ### Compression Algorithm
