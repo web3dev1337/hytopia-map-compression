@@ -20,6 +20,8 @@ export class DirectChunkLoader {
   async loadChunks(blocks: { [key: string]: number }, blockTypes?: any): Promise<void> {
     const startTime = Date.now();
     const batchSize = this.options.optimization?.batchSize || 10000;
+    // Ensure block types are registered before any placement
+    this.registerBlockTypes(blockTypes);
     
     if (this.options.debug) {
       console.log(`[DirectChunkLoader] Loading ${Object.keys(blocks).length} blocks in chunks`);
@@ -95,12 +97,10 @@ export class DirectChunkLoader {
         // Set blocks directly in chunk
         for (const block of blocks) {
           if (chunk.setBlock) {
-            chunk.setBlock(
-              block.x % this.chunkSize,
-              block.y,
-              block.z % this.chunkSize,
-              block.id
-            );
+            const localX = ((block.x % this.chunkSize) + this.chunkSize) % this.chunkSize;
+            const localY = ((block.y % this.chunkSize) + this.chunkSize) % this.chunkSize;
+            const localZ = ((block.z % this.chunkSize) + this.chunkSize) % this.chunkSize;
+            chunk.setBlock({ x: localX, y: localY, z: localZ }, block.id);
           }
         }
       } else {
@@ -141,7 +141,7 @@ export class DirectChunkLoader {
       // Set blocks
       for (const block of batch) {
         try {
-          this.world.setBlock(block.x, block.y, block.z, block.id);
+          this.world.setBlock({ x: block.x, y: block.y, z: block.z }, block.id);
         } catch (e) {
           console.error(`[DirectChunkLoader] Failed to setBlock at (${block.x}, ${block.y}, ${block.z}) with id ${block.id}:`, e);
           throw e;
