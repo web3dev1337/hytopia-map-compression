@@ -1,6 +1,7 @@
 import { MapDecompressor } from '../core/MapDecompressor';
 import { MonkeyPatchLoader } from './MonkeyPatchLoader';
 import { DirectChunkLoader } from './DirectChunkLoader';
+import { DirectChunkLoaderV3 } from './DirectChunkLoaderV3';
 import { MapCompressionOptions } from '../types';
 
 /**
@@ -142,21 +143,41 @@ export class FastLoader {
    * Hybrid loading - combines monkey patching with chunk optimization
    */
   private async loadHybrid(mapData: any): Promise<void> {
-    // Patch the SDK first
-    this.monkeyPatcher.patch();
-    
-    // Pre-process blocks into chunks
+    // Register block types if available (before any placement)
+    if (mapData.blockTypes && this.world?.blockTypeRegistry) {
+      try {
+        for (const bt of mapData.blockTypes) {
+          this.world.blockTypeRegistry.registerGenericBlockType({
+            id: bt.id,
+            isLiquid: bt.isLiquid || false,
+            name: bt.name || `block_${bt.id}`,
+            textureUri: bt.textureUri || 'blocks/stone.png'
+          });
+        }
+      } catch {
+        // best-effort registration
+      }
+    }
+
+    // Pre-compute chunks for fast placement
     const precomputed = await this.chunkLoader.precomputeChunks(mapData.blocks);
-    
-    // Create modified map data with pre-computed chunks
-    const optimizedData = {
-      ...mapData,
-      _precomputedChunks: precomputed,
-      _useChunks: true
-    };
-    
-    // Load through patched method
-    await this.world.loadMap(optimizedData);
+
+    // Prefer HyFire8-style direct chunkLattice path if available
+    if (this.world?.chunkLattice) {
+      const v3 = new DirectChunkLoaderV3(this.world, this.options);
+      v3.loadDirectly(precomputed);
+      // Also load entities if provided
+      if (mapData.entities) {
+        this.world.entities = mapData.entities;
+      }
+      return;
+    }
+
+    // Fallback to batched precomputed-chunk loading
+    await this.chunkLoader.loadPrecomputedChunks(precomputed, mapData.blockTypes);
+    if (mapData.entities) {
+      this.world.entities = mapData.entities;
+    }
   }
   
   /**
