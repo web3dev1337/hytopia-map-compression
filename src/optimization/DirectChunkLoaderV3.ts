@@ -1,3 +1,5 @@
+import * as zlib from 'zlib';
+
 /**
  * DirectChunkLoaderV3 - Exactly like HyFire8's implementation
  * Directly manipulates chunkLattice instead of using setBlock
@@ -14,7 +16,7 @@ export class DirectChunkLoaderV3 {
   /**
    * Load precomputed chunks directly into chunkLattice (HyFire8 style)
    */
-  loadDirectly(chunksData: any): void {
+  loadDirectly(chunksData: any, blockTypes?: any): void {
     const startTime = Date.now();
     console.log(`[DirectChunkLoaderV3] Loading precomputed chunks...`);
     
@@ -22,6 +24,8 @@ export class DirectChunkLoaderV3 {
     if (!chunkLattice) {
       throw new Error('World does not have chunkLattice');
     }
+    
+    this.registerBlockTypes(blockTypes);
     
     // Clear existing
     if (chunkLattice.clear) {
@@ -35,13 +39,33 @@ export class DirectChunkLoaderV3 {
     
     // Parse chunks data
     let chunks: any[] = [];
+    let parsed: any | null = null;
+    
     if (typeof chunksData === 'string') {
-      const parsed = JSON.parse(chunksData);
+      try {
+        parsed = JSON.parse(chunksData);
+      } catch {}
+    } else if (Buffer.isBuffer(chunksData)) {
+      const magic = chunksData.length >= 4 ? chunksData.readUInt32LE(0) : 0;
+      if (magic !== 0x3142434d) {
+        try {
+          parsed = JSON.parse(chunksData.toString('utf-8'));
+        } catch {}
+        
+        if (!parsed) {
+          try {
+            const decompressed = zlib.brotliDecompressSync(chunksData);
+            parsed = JSON.parse(decompressed.toString('utf-8'));
+          } catch {}
+        }
+      }
+    } else if (chunksData && chunksData.chunks) {
+      parsed = chunksData;
+    }
+    
+    if (parsed) {
       chunks = parsed.chunks || [];
-    } else if (chunksData.chunks) {
-      chunks = chunksData.chunks;
     } else {
-      // Binary format - need to parse it
       chunks = this.parseBinaryChunks(chunksData);
     }
     
@@ -103,10 +127,15 @@ export class DirectChunkLoaderV3 {
         });
       }
       
-      // Count non-zero blocks
+      // Count non-zero blocks and update counts
       for (let i = 0; i < typedBlockArray.length; i++) {
-        if (typedBlockArray[i] !== 0) {
+        const blockId = typedBlockArray[i];
+        if (blockId !== 0) {
           totalBlocks++;
+          if (chunkLattice._blockTypeCounts) {
+            const currentCount = chunkLattice._blockTypeCounts.get(blockId) || 0;
+            chunkLattice._blockTypeCounts.set(blockId, currentCount + 1);
+          }
         }
       }
     }
@@ -126,54 +155,92 @@ export class DirectChunkLoaderV3 {
     
     console.log(`[DirectChunkLoaderV3] Parsing binary chunks, buffer size: ${chunkData.length}`);
     
-    while (offset < chunkData.length) {
-      if (offset + 8 > chunkData.length) break;
-      
-      // Read chunk coordinates
-      const chunkX = chunkData.readInt32LE(offset);
-      offset += 4;
-      const chunkZ = chunkData.readInt32LE(offset);
+    const magic = chunkData.length >= 4 ? chunkData.readUInt32LE(0) : 0;
+    if (magic === 0x3142434d && chunkData.length >= 8) {
+      offset = 4;
+      const chunkCount = chunkData.readUInt32LE(offset);
       offset += 4;
       
-      const chunkKey = `${chunkX},0,${chunkZ}`;
-      
-      // Initialize chunk blocks if not exists
-      if (!chunks.has(chunkKey)) {
-        chunks.set(chunkKey, new Uint8Array(4096));
-      }
-      const blockArray = chunks.get(chunkKey)!;
-      
-      // Read blocks for this chunk
-      let blocksInChunk = 0;
-      while (offset + 14 <= chunkData.length) {
-        // Peek at next values to see if it's a new chunk header
-        const nextX = chunkData.readInt32LE(offset);
-        const nextY = chunkData.readInt32LE(offset + 4);
+      for (let c = 0; c < chunkCount; c++) {
+        if (offset + 16 > chunkData.length) break;
+        const chunkX = chunkData.readInt32LE(offset);
+        offset += 4;
+        const chunkY = chunkData.readInt32LE(offset);
+        offset += 4;
+        const chunkZ = chunkData.readInt32LE(offset);
+        offset += 4;
+        const blockCount = chunkData.readUInt32LE(offset);
+        offset += 4;
         
-        // If nextY looks like a chunk Z coordinate (small value) and we have blocks, it's probably a new chunk
-        if (blocksInChunk > 0 && Math.abs(nextY) < 100 && Math.abs(nextX) < 100) {
-          // This is likely a new chunk header
-          break;
+        const chunkKey = `${chunkX},${chunkY},${chunkZ}`;
+        if (!chunks.has(chunkKey)) {
+          chunks.set(chunkKey, new Uint8Array(4096));
         }
+        const blockArray = chunks.get(chunkKey)!;
         
-        // Read block data
-        const blockX = nextX;
-        const blockY = nextY;
-        const blockZ = chunkData.readInt32LE(offset + 8);
-        const blockId = chunkData.readUInt16LE(offset + 12);
-        offset += 14;
+        for (let i = 0; i < blockCount; i++) {
+          if (offset + 14 > chunkData.length) break;
+          const blockX = chunkData.readInt32LE(offset);
+          offset += 4;
+          const blockY = chunkData.readInt32LE(offset);
+          offset += 4;
+          const blockZ = chunkData.readInt32LE(offset);
+          offset += 4;
+          const blockId = chunkData.readUInt16LE(offset);
+          offset += 2;
+          
+          const localX = blockX & 15;
+          const localY = blockY & 15;
+          const localZ = blockZ & 15;
+          
+          const index = localX + (localY << 4) + (localZ << 8);
+          if (index >= 0 && index < 4096) {
+            blockArray[index] = blockId;
+            totalBlocks++;
+          }
+        }
+      }
+    } else {
+      while (offset < chunkData.length) {
+        if (offset + 8 > chunkData.length) break;
         
-        // Calculate local position in chunk
-        const localX = blockX & 15;  // blockX % 16
-        const localY = blockY & 15;
-        const localZ = blockZ & 15;
+        const chunkX = chunkData.readInt32LE(offset);
+        offset += 4;
+        const chunkZ = chunkData.readInt32LE(offset);
+        offset += 4;
         
-        // Store in chunk array
-        const index = localX + (localY << 4) + (localZ << 8);
-        if (index >= 0 && index < 4096) {
-          blockArray[index] = blockId;
-          blocksInChunk++;
-          totalBlocks++;
+        const chunkKey = `${chunkX},0,${chunkZ}`;
+        
+        if (!chunks.has(chunkKey)) {
+          chunks.set(chunkKey, new Uint8Array(4096));
+        }
+        const blockArray = chunks.get(chunkKey)!;
+        
+        let blocksInChunk = 0;
+        while (offset + 14 <= chunkData.length) {
+          const nextX = chunkData.readInt32LE(offset);
+          const nextY = chunkData.readInt32LE(offset + 4);
+          
+          if (blocksInChunk > 0 && Math.abs(nextY) < 100 && Math.abs(nextX) < 100) {
+            break;
+          }
+          
+          const blockX = nextX;
+          const blockY = nextY;
+          const blockZ = chunkData.readInt32LE(offset + 8);
+          const blockId = chunkData.readUInt16LE(offset + 12);
+          offset += 14;
+          
+          const localX = blockX & 15;
+          const localY = blockY & 15;
+          const localZ = blockZ & 15;
+          
+          const index = localX + (localY << 4) + (localZ << 8);
+          if (index >= 0 && index < 4096) {
+            blockArray[index] = blockId;
+            blocksInChunk++;
+            totalBlocks++;
+          }
         }
       }
     }
@@ -191,5 +258,24 @@ export class DirectChunkLoaderV3 {
     }
     
     return result;
+  }
+  
+  private registerBlockTypes(blockTypes?: any): void {
+    if (!blockTypes || !this.world?.blockTypeRegistry) return;
+    
+    const list = Array.isArray(blockTypes) ? blockTypes : Object.values(blockTypes);
+    for (const blockType of list) {
+      if (!blockType || typeof blockType.id !== 'number') continue;
+      try {
+        this.world.blockTypeRegistry.registerGenericBlockType({
+          id: blockType.id,
+          isLiquid: blockType.isLiquid || false,
+          name: blockType.name || `block_${blockType.id}`,
+          textureUri: blockType.textureUri || 'blocks/stone.png'
+        });
+      } catch {
+        // ignore duplicates
+      }
+    }
   }
 }

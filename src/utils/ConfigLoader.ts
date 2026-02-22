@@ -68,7 +68,7 @@ export class ConfigLoader {
       paths: config.paths,
       autoLoad: config.autoLoad,
       debug: config.logging?.enabled || false,
-      metrics: config.logging?.metrics || true,
+      metrics: config.logging?.metrics ?? true,
       logger: config.logging?.enabled ? console.log : undefined
     };
   }
@@ -104,7 +104,7 @@ export class ConfigLoader {
       autoLoad: options.autoLoad,
       logging: {
         enabled: options.debug || false,
-        metrics: options.metrics || true,
+        metrics: options.metrics ?? true,
         level: 'info'
       }
     };

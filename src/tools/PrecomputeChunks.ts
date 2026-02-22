@@ -178,8 +178,9 @@ export class PrecomputeChunks {
       
       // Calculate chunk coordinates
       const chunkX = Math.floor(x / 16);
+      const chunkY = Math.floor(y / 16);
       const chunkZ = Math.floor(z / 16);
-      const chunkKey = `${chunkX},${chunkZ}`;
+      const chunkKey = `${chunkX},${chunkY},${chunkZ}`;
       
       // Add to chunk
       if (!chunkMap.has(chunkKey)) {
@@ -192,22 +193,23 @@ export class PrecomputeChunks {
     
     // Create binary format
     const chunkBuffers: Buffer[] = [];
+    const header = Buffer.allocUnsafe(8);
+    header.writeUInt32LE(0x3142434d, 0); // "MCB1" little-endian
+    header.writeUInt32LE(chunkMap.size, 4);
+    chunkBuffers.push(header);
     
     for (const [chunkKey, blocks] of chunkMap) {
-      const [chunkX, chunkZ] = chunkKey.split(',').map(Number);
+      const [chunkX, chunkY, chunkZ] = chunkKey.split(',').map(Number);
       
-      // Calculate buffer size: header (8 bytes) + blocks (14 bytes each)
-      const bufferSize = 8 + blocks.length * 14;
-      const buffer = Buffer.allocUnsafe(bufferSize);
+      const chunkHeader = Buffer.allocUnsafe(16);
+      chunkHeader.writeInt32LE(chunkX, 0);
+      chunkHeader.writeInt32LE(chunkY, 4);
+      chunkHeader.writeInt32LE(chunkZ, 8);
+      chunkHeader.writeUInt32LE(blocks.length, 12);
+      chunkBuffers.push(chunkHeader);
+      
+      const buffer = Buffer.allocUnsafe(blocks.length * 14);
       let offset = 0;
-      
-      // Write chunk header
-      buffer.writeInt32LE(chunkX, offset);
-      offset += 4;
-      buffer.writeInt32LE(chunkZ, offset);
-      offset += 4;
-      
-      // Write blocks
       for (const block of blocks) {
         buffer.writeInt32LE(block.x, offset);
         offset += 4;

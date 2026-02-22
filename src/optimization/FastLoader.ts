@@ -102,19 +102,25 @@ export class FastLoader {
    */
   private determineOptimalMethod(mapData: any): string {
     const blockCount = Object.keys(mapData.blocks).length;
+    const optimizationEnabled = this.options.optimization?.enabled !== false;
+    const useChunks = this.options.optimization?.useChunks !== false;
     
     // For very large maps, use chunk loading
-    if (blockCount > 1000000) {
+    if (optimizationEnabled && useChunks && blockCount > 1000000) {
       return 'chunks';
     }
     
     // For medium maps, use hybrid approach
-    if (blockCount > 100000) {
+    if (optimizationEnabled && useChunks && blockCount > 100000) {
       return 'hybrid';
     }
     
     // For smaller maps, monkey patching is sufficient
-    return 'monkeypatch';
+    if (this.options.optimization?.monkeyPatch || this.options.features?.monkeyPatching) {
+      return 'monkeypatch';
+    }
+    
+    return 'default';
   }
   
   /**
@@ -142,21 +148,16 @@ export class FastLoader {
    * Hybrid loading - combines monkey patching with chunk optimization
    */
   private async loadHybrid(mapData: any): Promise<void> {
-    // Patch the SDK first
-    this.monkeyPatcher.patch();
+    if (this.options.optimization?.monkeyPatch || this.options.features?.monkeyPatching) {
+      this.monkeyPatcher.patch();
+    }
     
-    // Pre-process blocks into chunks
-    const precomputed = await this.chunkLoader.precomputeChunks(mapData.blocks);
+    if (this.options.optimization?.useChunks !== false) {
+      await this.chunkLoader.loadChunks(mapData.blocks, mapData.blockTypes);
+      return;
+    }
     
-    // Create modified map data with pre-computed chunks
-    const optimizedData = {
-      ...mapData,
-      _precomputedChunks: precomputed,
-      _useChunks: true
-    };
-    
-    // Load through patched method
-    await this.world.loadMap(optimizedData);
+    await this.world.loadMap(mapData);
   }
   
   /**

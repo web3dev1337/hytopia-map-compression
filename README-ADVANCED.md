@@ -42,11 +42,11 @@ For maximum performance, generate chunks at build time:
 cd hytopia-map-compression
 npm install
 
-# Generate JSON chunks (HyFire8 compatible format)
+# Generate JSON chunks (Brotli-compressed JSON, HyFire8 compatible)
 npm run precompute assets/map.json assets/map.chunks
 
 # Generate binary chunks (custom ultra-fast format)
-npm run precompute assets/map.json assets/map.bin -- --format=binary
+npm run precompute assets/map.json assets/map.chunks.bin -- --format=binary
 
 # Verify the output
 npm run precompute assets/map.json assets/map.chunks -- --verify
@@ -70,7 +70,7 @@ const world = await PrecomputeChunks.loadPrecomputedChunks('map.chunks');
 ## Chunk Formats
 
 ### JSON Chunks Format
-Compatible with HyFire8, uses Brotli compression:
+Brotli-compressed JSON (compatible with HyFire8) that expands to:
 ```json
 {
   "version": 1,
@@ -91,10 +91,14 @@ Compatible with HyFire8, uses Brotli compression:
 }
 ```
 
-### Binary Chunks Format
+### Binary Chunks Format (v1)
 Custom format optimized for speed:
 ```
-[chunkX:i32][chunkZ:i32][block1.x:i32][block1.y:i32][block1.z:i32][block1.id:u16]...
+[magic:u32][chunkCount:u32]
+repeat chunkCount:
+  [chunkX:i32][chunkY:i32][chunkZ:i32][blockCount:u32]
+  repeat blockCount:
+    [blockX:i32][blockY:i32][blockZ:i32][blockId:u16]
 ```
 
 ## Integration Examples

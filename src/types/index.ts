@@ -8,7 +8,7 @@ export interface MapCompressionOptions {
   
   compression?: {
     algorithm?: 'brotli' | 'gzip' | 'none';
-    level?: number; // 1-9
+    level?: number; // 0-11
     chunkSize?: number;
     useDelta?: boolean;
     useVarint?: boolean;
