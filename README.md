@@ -40,17 +40,18 @@ The plugin uses **automatic optimization** with **hash-based caching**:
 
 ```
 First Run:    Original Map → Create BOTH Caches → Load (2s)
-              ├─ map.<hash>.compressed.json (99.5% smaller)
-              └─ map.<hash>.chunks.bin (pre-computed for ultra-fast loading)
+              ├─ map.<hash>.v<version>.compressed.json (99.5% smaller)
+              └─ map.<hash>.v<version>.chunks.bin (binary) or .chunks (Brotli JSON)
 
 Next Runs:    Load from Chunks → 50x Faster (40ms) ⚡
 
 Map Changed?: New Hash → Create New Caches → Auto-cleanup Old Files
 ```
 
-Cache files include the map's hash:
-- `map.a1b2c3d4.compressed.json` - Compressed version
-- `map.a1b2c3d4.chunks.bin` - Pre-computed chunks
+Cache files include the map's SHA-256 hash (16 chars) and plugin version tag:
+- `map.a1b2c3d4e5f6a7b8.v0_1_0.compressed.json` - Compressed version
+- `map.a1b2c3d4e5f6a7b8.v0_1_0.chunks.bin` - Binary pre-computed chunks
+- `map.a1b2c3d4e5f6a7b8.v0_1_0.chunks` - Brotli-compressed JSON chunks
 
 When your map changes, new cache files are created and old ones are cleaned up!
 

@@ -75,8 +75,8 @@ export class MapCompression {
         ...options.performance
       },
       debug: options.debug || false,
-      metrics: options.metrics || true,
-      logger: options.logger || console.log,
+      metrics: options.metrics ?? true,
+      logger: options.logger ?? console.log,
       simple: simpleMode
     };
     
@@ -91,7 +91,7 @@ export class MapCompression {
       this.monkeyPatcher.patch();
     }
     
-    if (this.options.optimization?.useChunks) {
+    if (this.options.optimization?.enabled !== false && this.options.optimization?.useChunks) {
       this.chunkLoader = new DirectChunkLoader(world, this.options);
       this.chunkLoaderV3 = new DirectChunkLoaderV3(world, this.options);
       if (this.options.debug) {
@@ -175,7 +175,13 @@ export class MapCompression {
     let data: any = mapData;
     if (typeof mapData === 'string') {
       try {
-        data = await import(mapData);
+        if (fs.existsSync(mapData)) {
+          const raw = fs.readFileSync(mapData, 'utf-8');
+          data = JSON.parse(raw);
+        } else {
+          const imported = await import(mapData);
+          data = (imported as any).default || imported;
+        }
       } catch (error) {
         throw new Error(`Failed to load map from path: ${mapData}`);
       }
@@ -317,7 +323,7 @@ export class MapCompression {
     benchmark.start();
     
     // Get plugin version for cache invalidation
-    const pluginVersion = '0.1.0'; // TODO: Import from package.json
+    const pluginVersion = this.getPluginVersion();
     const versionTag = `v${pluginVersion.replace(/\./g, '_')}`;
     
     // Load config - will automatically check for assets/config/map-compression.yaml
@@ -344,20 +350,22 @@ export class MapCompression {
       benchmark.finishStep({ sizeBytes: mapSize });
       
       benchmark.startStep('Hash Calculation');
-      const mapHash = crypto.createHash('md5').update(mapContent).digest('hex').slice(0, 8);
+      const mapHash = crypto.createHash('sha256').update(mapContent).digest('hex').slice(0, 16);
       benchmark.finishStep({ hash: mapHash })
       
       // Generate cache filenames with hash AND version
       const baseDir = path.dirname(originalMapPath);
       const baseName = path.basename(originalMapPath, '.json');
       const compressedMapPath = path.join(baseDir, `${baseName}.${mapHash}.${versionTag}.compressed.json`);
-      const chunksPath = path.join(baseDir, `${baseName}.${mapHash}.${versionTag}.chunks.bin`);
+      const chunksBinPath = path.join(baseDir, `${baseName}.${mapHash}.${versionTag}.chunks.bin`);
+      const chunksJsonPath = path.join(baseDir, `${baseName}.${mapHash}.${versionTag}.chunks`);
       
       this.log(`[AutoLoad] Map hash: ${mapHash}`);
       
       // Step 1: Check for pre-computed chunks (ultra-fastest) - skip in simple mode
-      this.log(`[AutoLoad] Checking for chunks at: ${chunksPath}`);
-      if (!this.options.simple && !this.options.autoLoad?.compressionOnly && fs.existsSync(chunksPath)) {
+      const chunksPath = fs.existsSync(chunksBinPath) ? chunksBinPath : (fs.existsSync(chunksJsonPath) ? chunksJsonPath : null);
+      this.log(`[AutoLoad] Checking for chunks at: ${chunksPath || chunksBinPath}`);
+      if (!this.options.simple && !this.options.autoLoad?.compressionOnly && this.options.autoLoad?.preferChunks !== false && chunksPath) {
         this.log(`[AutoLoad] ✓ Found pre-computed chunks, entering chunks section`);
         
         try {
@@ -373,26 +381,38 @@ export class MapCompression {
           
           benchmark.startStep('Chunk Loading');
           
+          let compressedData: any | null = null;
+          let originalMapData: any | null = null;
+          
+          if (fs.existsSync(compressedMapPath)) {
+            compressedData = JSON.parse(fs.readFileSync(compressedMapPath, 'utf-8'));
+          }
+          
+          if (compressedData?.blockTypes) {
+            this.registerBlockTypes(compressedData.blockTypes);
+          } else {
+            originalMapData = JSON.parse(mapContent.toString());
+            if (originalMapData?.blockTypes) {
+              this.registerBlockTypes(originalMapData.blockTypes);
+            }
+          }
+          
           // Use V3 loader (HyFire8 style - direct chunkLattice manipulation)
-          this.chunkLoaderV3.loadDirectly(chunksData);
+          this.chunkLoaderV3.loadDirectly(chunksData, compressedData?.blockTypes || originalMapData?.blockTypes);
           
           // Load entities from compressed file if available
-          if (fs.existsSync(compressedMapPath)) {
-            const compressedData = JSON.parse(fs.readFileSync(compressedMapPath, 'utf-8'));
-            if (compressedData.entities) {
-              this.world.entities = compressedData.entities;
-            }
+          if (compressedData?.entities) {
+            this.world.entities = compressedData.entities;
           } else {
-            // Fallback to original for entities
-            const mapData = JSON.parse(mapContent.toString());
-            if (mapData.entities) {
-              this.world.entities = mapData.entities;
+            if (!originalMapData) {
+              originalMapData = JSON.parse(mapContent.toString());
+            }
+            if (originalMapData?.entities) {
+              this.world.entities = originalMapData.entities;
             }
           }
           
           benchmark.finishStep()
-          
-          console.log('>>> ABOUT TO FINISH BENCHMARK AND RETURN <<<');
           
           // Finish benchmark and record metrics
           try {
@@ -402,7 +422,6 @@ export class MapCompression {
             this.metrics.method = 'precomputed-chunks';
             this.metrics.benchmark = results;
           } catch (benchErr) {
-            console.error('>>> ERROR FINISHING BENCHMARK:', benchErr);
             throw benchErr;
           }
           
@@ -415,17 +434,14 @@ export class MapCompression {
           // Clean up old cache files
           this.cleanupOldCaches(baseDir, baseName, mapHash, versionTag);
           this.log('[AutoLoad] ✅ Chunks loading complete, returning early (no decompression needed!)');
-          console.log('>>> CHUNKS SECTION RETURNING NOW - NO DECOMPRESSION SHOULD HAPPEN <<<');
           return;
         } catch (error) {
-          console.error('>>> CHUNKS SECTION CAUGHT ERROR, FALLING BACK:', error);
           this.log(`[AutoLoad] Failed to load chunks, falling back...`, error);
           // Fall through to next option
         }
       }
       
       // Step 2: Check for compressed map (fast)
-      console.log('>>> ENTERING COMPRESSED SECTION - THIS SHOULD NOT HAPPEN IF CHUNKS LOADED <<<');
       this.log('[AutoLoad] Entering compressed map section (chunks not available or failed)');
       if (fs.existsSync(compressedMapPath)) {
         this.log(`[AutoLoad] Found compressed map, loading with optimizations`);
@@ -435,6 +451,13 @@ export class MapCompression {
           const compressedContent = fs.readFileSync(compressedMapPath, 'utf-8');
           const compressedData = JSON.parse(compressedContent);
           benchmark.finishStep({ sizeBytes: compressedContent.length })
+          
+          if (!compressedData.options) {
+            compressedData.options = {
+              useDelta: this.options.compression?.useDelta ?? true,
+              useVarint: this.options.compression?.useVarint ?? true
+            };
+          }
           
           // Verify hash matches (belt and suspenders)
           if (compressedData.sourceHash && compressedData.sourceHash !== mapHash) {
@@ -453,11 +476,12 @@ export class MapCompression {
             this.metrics.benchmark = results;
             
             // Regenerate chunks if missing (for next run)
-            if (!fs.existsSync(chunksPath) && this.chunkLoader) {
+            const hasChunksCache = fs.existsSync(chunksBinPath) || fs.existsSync(chunksJsonPath);
+            if (!hasChunksCache && this.chunkLoader) {
               this.log(`[AutoLoad] Chunks missing, regenerating for next run...`);
               const decompressed = await this.decompress(compressedData);
               const chunks = await this.chunkLoader.precomputeChunks(decompressed.blocks);
-              fs.writeFileSync(chunksPath, chunks);
+              fs.writeFileSync(chunksBinPath, chunks);
               this.log(`[AutoLoad] ✅ Regenerated chunks cache`);
             }
             
@@ -489,7 +513,7 @@ export class MapCompression {
       // Create full compressed map file with hash
       const compressedFile = {
         version: compressed.version,
-        algorithm: 'brotli',
+        algorithm: this.options.compression?.algorithm || 'brotli',
         data: compressed.data,
         blockTypes: compressed.blockTypes,
         bounds: compressed.bounds,
@@ -497,8 +521,8 @@ export class MapCompression {
         mapVersion: mapData.version || '1.0.0',
         metadata: compressed.metadata,
         options: {
-          useDelta: true,
-          useVarint: true
+          useDelta: this.options.compression?.useDelta ?? true,
+          useVarint: this.options.compression?.useVarint ?? true
         },
         sourceHash: mapHash  // Store hash for verification
       };
@@ -522,9 +546,9 @@ export class MapCompression {
         benchmark.finishStep({ chunksSize: chunks.length });
         
         benchmark.startStep('Cache Write (Chunks)');
-        fs.writeFileSync(chunksPath, chunks);
-        benchmark.finishStep({ path: chunksPath });
-        this.log(`[AutoLoad] ✅ Created chunks cache: ${path.basename(chunksPath)}`);
+        fs.writeFileSync(chunksBinPath, chunks);
+        benchmark.finishStep({ path: chunksBinPath });
+        this.log(`[AutoLoad] ✅ Created chunks cache: ${path.basename(chunksBinPath)}`);
       }
       
       const results = benchmark.finish();
@@ -550,7 +574,7 @@ export class MapCompression {
     try {
       const files = fs.readdirSync(dir);
       // Match files with pattern: basename.hash.version.type
-      const pattern = new RegExp(`^${baseName}\\.[a-f0-9]{8}\\.v[0-9_]+\\.(compressed\\.json|chunks\\.bin)$`);
+      const pattern = new RegExp(`^${baseName}\\.[a-f0-9]{8,16}\\.v[0-9_]+\\.(compressed\\.json|chunks\\.bin|chunks)$`);
       
       files.forEach(file => {
         if (pattern.test(file) && (!file.includes(currentHash) || !file.includes(currentVersion))) {
@@ -574,7 +598,7 @@ export class MapCompression {
       
       const compressedFile = {
         version: compressed.version,
-        algorithm: 'brotli',
+        algorithm: this.options.compression?.algorithm || 'brotli',
         data: compressed.data,
         blockTypes: compressed.blockTypes,
         bounds: compressed.bounds,
@@ -582,8 +606,8 @@ export class MapCompression {
         mapVersion: mapData.version || '1.0.0',
         metadata: compressed.metadata,
         options: {
-          useDelta: true,
-          useVarint: true
+          useDelta: this.options.compression?.useDelta ?? true,
+          useVarint: this.options.compression?.useVarint ?? true
         },
         sourceHash: mapHash,
         pluginVersion: versionTag
@@ -611,5 +635,36 @@ export class MapCompression {
    */
   static async quickLoadWithBenchmark(world: any, mapPath?: string): Promise<MapCompression> {
     return MapCompression.quickLoad(world, mapPath, true);
+  }
+
+  private getPluginVersion(): string {
+    try {
+      const pkgPath = path.join(__dirname, '../../package.json');
+      const raw = fs.readFileSync(pkgPath, 'utf-8');
+      const pkg = JSON.parse(raw);
+      if (pkg && typeof pkg.version === 'string') {
+        return pkg.version;
+      }
+    } catch {}
+    return '0.1.0';
+  }
+  
+  private registerBlockTypes(blockTypes?: any): void {
+    if (!blockTypes || !this.world?.blockTypeRegistry) return;
+    
+    const list = Array.isArray(blockTypes) ? blockTypes : Object.values(blockTypes);
+    for (const blockType of list) {
+      if (!blockType || typeof blockType.id !== 'number') continue;
+      try {
+        this.world.blockTypeRegistry.registerGenericBlockType({
+          id: blockType.id,
+          isLiquid: blockType.isLiquid || false,
+          name: blockType.name || `block_${blockType.id}`,
+          textureUri: blockType.textureUri || 'blocks/stone.png'
+        });
+      } catch {
+        // ignore duplicates or registry errors
+      }
+    }
   }
 }

@@ -156,8 +156,8 @@ examples/fast-loading.ts - Optimized loading strategies
 
 ## File Conventions
 - Maps expected in: ./assets/map.json (default)
-- Cache files: ./<mapname>.<hash>.compressed.json
-- Chunk files: ./<mapname>.<hash>.chunks.bin
+- Cache files: ./<mapname>.<sha256-16>.<version>.compressed.json
+- Chunk files: ./<mapname>.<sha256-16>.<version>.chunks.bin (binary) or .chunks (Brotli JSON)
 - Config: ./assets/config/map-compression.yaml
 
 ## Workflow

@@ -69,8 +69,9 @@ export class DirectChunkLoader {
       
       // Calculate chunk coordinates
       const chunkX = Math.floor(x / this.chunkSize);
+      const chunkY = Math.floor(y / this.chunkSize);
       const chunkZ = Math.floor(z / this.chunkSize);
-      const chunkKey = `${chunkX},${chunkZ}`;
+      const chunkKey = `${chunkX},${chunkY},${chunkZ}`;
       
       // Add to chunk
       if (!chunks.has(chunkKey)) {
@@ -155,38 +156,40 @@ export class DirectChunkLoader {
    */
   async precomputeChunks(blocks: { [key: string]: number }): Promise<Buffer> {
     const chunks = this.groupBlocksByChunk(blocks);
-    const chunkData: any[] = [];
+    const buffers: Buffer[] = [];
+    const magicHeader = Buffer.allocUnsafe(8);
+    magicHeader.writeUInt32LE(0x3142434d, 0); // "MCB1" little-endian
+    magicHeader.writeUInt32LE(chunks.size, 4);
+    buffers.push(magicHeader);
     
     for (const [chunkKey, blockList] of chunks) {
-      const [chunkX, chunkZ] = chunkKey.split(',').map(Number);
+      const [chunkX, chunkY, chunkZ] = chunkKey.split(',').map(Number);
       
-      // Create compact chunk representation
-      const chunkBuffer = Buffer.allocUnsafe(4 + 4 + blockList.length * 14); // header + blocks (4+4+4+2 per block)
+      const header = Buffer.allocUnsafe(16);
+      header.writeInt32LE(chunkX, 0);
+      header.writeInt32LE(chunkY, 4);
+      header.writeInt32LE(chunkZ, 8);
+      header.writeUInt32LE(blockList.length, 12);
+      buffers.push(header);
+      
+      const blocksBuffer = Buffer.allocUnsafe(blockList.length * 14);
       let offset = 0;
-      
-      // Write chunk coordinates
-      chunkBuffer.writeInt32LE(chunkX, offset);
-      offset += 4;
-      chunkBuffer.writeInt32LE(chunkZ, offset);
-      offset += 4;
-      
-      // Write blocks
       for (const block of blockList) {
-        chunkBuffer.writeInt32LE(block.x, offset);
+        blocksBuffer.writeInt32LE(block.x, offset);
         offset += 4;
-        chunkBuffer.writeInt32LE(block.y, offset);
+        blocksBuffer.writeInt32LE(block.y, offset);
         offset += 4;
-        chunkBuffer.writeInt32LE(block.z, offset);
+        blocksBuffer.writeInt32LE(block.z, offset);
         offset += 4;
-        chunkBuffer.writeUInt16LE(block.id, offset); // Use 16-bit for block IDs
+        blocksBuffer.writeUInt16LE(block.id, offset);
         offset += 2;
       }
       
-      chunkData.push(chunkBuffer.slice(0, offset));
+      buffers.push(blocksBuffer);
     }
     
     // Combine all chunks
-    return Buffer.concat(chunkData);
+    return Buffer.concat(buffers);
   }
   
   /**
@@ -205,8 +208,14 @@ export class DirectChunkLoader {
       return;
     }
     
-    console.log(`[DirectChunkLoader] Registering ${blockTypes.length} block types...`);
-    for (const blockType of blockTypes) {
+    const list = Array.isArray(blockTypes) ? blockTypes : Object.values(blockTypes);
+    if (list.length === 0) {
+      console.log('[DirectChunkLoader] No block types to register');
+      return;
+    }
+    
+    console.log(`[DirectChunkLoader] Registering ${list.length} block types...`);
+    for (const blockType of list) {
       try {
         this.world.blockTypeRegistry.registerGenericBlockType({
           id: blockType.id,
@@ -231,48 +240,82 @@ export class DirectChunkLoader {
     const startTime = Date.now();
     let chunksLoaded = 0;
     
-    while (offset < chunkData.length) {
-      // Read chunk header
-      const chunkX = chunkData.readInt32LE(offset);
-      offset += 4;
-      const chunkZ = chunkData.readInt32LE(offset);
+    const magic = 0x3142434d; // "MCB1"
+    if (chunkData.length >= 8 && chunkData.readUInt32LE(0) === magic) {
+      offset = 4;
+      const chunkCount = chunkData.readUInt32LE(offset);
       offset += 4;
       
-      // Read blocks until next chunk or end
-      const blocks: Array<{x: number, y: number, z: number, id: number}> = [];
-      
-      while (offset < chunkData.length) {
-        // Check if this is a new chunk header (heuristic)
-        if (offset + 14 <= chunkData.length) {
+      for (let c = 0; c < chunkCount; c++) {
+        if (offset + 16 > chunkData.length) break;
+        const chunkX = chunkData.readInt32LE(offset);
+        offset += 4;
+        const chunkY = chunkData.readInt32LE(offset);
+        offset += 4;
+        const chunkZ = chunkData.readInt32LE(offset);
+        offset += 4;
+        const blockCount = chunkData.readUInt32LE(offset);
+        offset += 4;
+        
+        const blocks: Array<{x: number, y: number, z: number, id: number}> = new Array(blockCount);
+        for (let i = 0; i < blockCount; i++) {
+          if (offset + 14 > chunkData.length) break;
           const x = chunkData.readInt32LE(offset);
-          const y = chunkData.readInt32LE(offset + 4);
-          const z = chunkData.readInt32LE(offset + 8);
-          const id = chunkData.readUInt16LE(offset + 12);
-          
-          blocks.push({ x, y, z, id });
-          offset += 14;
-          
-          // Check if next might be a chunk header
-          if (offset + 8 <= chunkData.length) {
-            const nextX = chunkData.readInt32LE(offset);
-            const nextZ = chunkData.readInt32LE(offset + 4);
-            
-            // If coordinates look like chunk coords, break
-            if (Math.abs(nextX) < 1000 && Math.abs(nextZ) < 1000) {
-              break;
-            }
-          }
-        } else {
-          break;
+          offset += 4;
+          const y = chunkData.readInt32LE(offset);
+          offset += 4;
+          const z = chunkData.readInt32LE(offset);
+          offset += 4;
+          const id = chunkData.readUInt16LE(offset);
+          offset += 2;
+          blocks[i] = { x, y, z, id };
+        }
+        
+        await this.loadBlocksBatched(blocks);
+        chunksLoaded++;
+        
+        if (this.options.debug && chunksLoaded % 100 === 0) {
+          console.log(`[DirectChunkLoader] Loaded ${chunksLoaded} chunks`);
         }
       }
-      
-      // Load the blocks
-      await this.loadBlocksBatched(blocks);
-      chunksLoaded++;
-      
-      if (this.options.debug && chunksLoaded % 100 === 0) {
-        console.log(`[DirectChunkLoader] Loaded ${chunksLoaded} chunks`);
+    } else {
+      while (offset < chunkData.length) {
+        const chunkX = chunkData.readInt32LE(offset);
+        offset += 4;
+        const chunkZ = chunkData.readInt32LE(offset);
+        offset += 4;
+        
+        const blocks: Array<{x: number, y: number, z: number, id: number}> = [];
+        
+        while (offset < chunkData.length) {
+          if (offset + 14 <= chunkData.length) {
+            const x = chunkData.readInt32LE(offset);
+            const y = chunkData.readInt32LE(offset + 4);
+            const z = chunkData.readInt32LE(offset + 8);
+            const id = chunkData.readUInt16LE(offset + 12);
+            
+            blocks.push({ x, y, z, id });
+            offset += 14;
+            
+            if (offset + 8 <= chunkData.length) {
+              const nextX = chunkData.readInt32LE(offset);
+              const nextZ = chunkData.readInt32LE(offset + 4);
+              
+              if (Math.abs(nextX) < 1000 && Math.abs(nextZ) < 1000) {
+                break;
+              }
+            }
+          } else {
+            break;
+          }
+        }
+        
+        await this.loadBlocksBatched(blocks);
+        chunksLoaded++;
+        
+        if (this.options.debug && chunksLoaded % 100 === 0) {
+          console.log(`[DirectChunkLoader] Loaded ${chunksLoaded} chunks`);
+        }
       }
     }
     
